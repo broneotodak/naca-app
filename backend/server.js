@@ -1,7 +1,13 @@
 require('dotenv').config();
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 const SessionManager = require('./session-manager');
+
+const UPLOAD_DIR = '/tmp/ccc-uploads';
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const PORT = parseInt(process.env.PORT || '3100');
 const AUTH_TOKEN = process.env.AUTH_TOKEN;
@@ -21,11 +27,11 @@ const server = http.createServer((req, res) => {
   }
 
   const url = new URL(req.url, `http://${req.headers.host}`);
-  const path = url.pathname;
+  const urlPath = url.pathname;
 
-  if (path === '/api/sessions' && req.method === 'GET') { json(res, sm.list()); return; }
+  if (urlPath === '/api/sessions' && req.method === 'GET') { json(res, sm.list()); return; }
 
-  if (path === '/api/sessions' && req.method === 'POST') {
+  if (urlPath === '/api/sessions' && req.method === 'POST') {
     readBody(req, (body) => {
       try {
         const { name, projectDir } = body;
@@ -36,7 +42,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  const sessionMatch = path.match(/^\/api\/sessions\/([a-f0-9-]+)$/);
+  const sessionMatch = urlPath.match(/^\/api\/sessions\/([a-f0-9-]+)$/);
 
   if (sessionMatch && req.method === 'GET') {
     const s = sm.get(sessionMatch[1]);
@@ -61,21 +67,43 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  const startMatch = path.match(/^\/api\/sessions\/([a-f0-9-]+)\/start$/);
+  const startMatch = urlPath.match(/^\/api\/sessions\/([a-f0-9-]+)\/start$/);
   if (startMatch && req.method === 'POST') {
     try { json(res, sm.startSession(startMatch[1])); }
     catch (e) { json(res, { error: e.message }, 500); }
     return;
   }
 
-  const stopMatch = path.match(/^\/api\/sessions\/([a-f0-9-]+)\/stop$/);
+  const stopMatch = urlPath.match(/^\/api\/sessions\/([a-f0-9-]+)\/stop$/);
   if (stopMatch && req.method === 'POST') {
     try { sm.stopSession(stopMatch[1]); json(res, { ok: true }); }
     catch (e) { json(res, { error: e.message }, 500); }
     return;
   }
 
-  if (path === '/api/health') {
+  if (urlPath === '/api/upload' && req.method === 'POST') {
+    readBody(req, (body) => {
+      try {
+        if (!body.data || !body.filename) {
+          json(res, { error: 'data (base64) and filename required' }, 400);
+          return;
+        }
+        const ext = path.extname(body.filename) || '.png';
+        const id = crypto.randomBytes(8).toString('hex');
+        const fname = `${id}${ext}`;
+        const fpath = path.join(UPLOAD_DIR, fname);
+        const buf = Buffer.from(body.data, 'base64');
+        fs.writeFileSync(fpath, buf);
+        // Make readable by lanccc user
+        fs.chmodSync(fpath, 0o644);
+        console.log(`[UPLOAD] ${fname} (${(buf.length / 1024).toFixed(1)}KB)`);
+        json(res, { path: fpath, filename: fname, size: buf.length });
+      } catch (e) { json(res, { error: e.message }, 500); }
+    }, 20 * 1024 * 1024); // 20MB limit
+    return;
+  }
+
+  if (urlPath === '/api/health') {
     json(res, { status: 'ok', uptime: process.uptime(), sessions: sm.list().length });
     return;
   }
@@ -165,8 +193,13 @@ function json(res, data, code = 200) {
   res.writeHead(code, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(data));
 }
-function readBody(req, cb) {
+function readBody(req, cb, maxSize = 1024 * 1024) {
   let body = '';
-  req.on('data', c => body += c);
+  let size = 0;
+  req.on('data', c => {
+    size += c.length;
+    if (size > maxSize) { req.destroy(); return; }
+    body += c;
+  });
   req.on('end', () => { try { cb(JSON.parse(body)); } catch { cb({}); } });
 }

@@ -1,8 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:pasteboard/pasteboard.dart';
 import '../theme.dart';
 import '../services/api_service.dart';
 import '../services/ws_service.dart';
@@ -24,12 +29,16 @@ class PaneState {
   bool autoScroll = true;
   int historyIndex = -1;
   String historyDraft = '';
+  List<Map<String, dynamic>> attachments = []; // [{filename, serverPath, bytes (Uint8List)}]
+  bool isUploading = false;
 
   void clear() {
     events.clear();
     timestamps.clear();
     expandedTools.clear();
+    attachments.clear();
     isProcessing = false;
+    isUploading = false;
     autoScroll = true;
     historyIndex = -1;
     historyDraft = '';
@@ -322,6 +331,99 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
   }
 
+  Future<void> _pickImage(int paneIdx, ImageSource source) async {
+    final pane = _panes[paneIdx];
+    if (pane.sessionId == null) return;
+    try {
+      final picker = ImagePicker();
+      final picked = await picker.pickImage(source: source, imageQuality: 85, maxWidth: 2048);
+      if (picked == null) return;
+      final bytes = await picked.readAsBytes();
+      await _uploadAndAttach(paneIdx, bytes, picked.name);
+    } catch (e) {
+      _showUploadError(e.toString());
+    }
+  }
+
+  Future<void> _uploadAndAttach(int paneIdx, Uint8List bytes, String filename) async {
+    final pane = _panes[paneIdx];
+    setState(() => pane.isUploading = true);
+    try {
+      final b64 = base64Encode(bytes);
+      final result = await ApiService.uploadImage(b64, filename);
+      if (result['path'] != null) {
+        setState(() {
+          pane.attachments.add({
+            'filename': filename,
+            'serverPath': result['path'] as String,
+            'bytes': bytes,
+          });
+        });
+      }
+    } catch (e) {
+      _showUploadError(e.toString());
+    } finally {
+      if (mounted) setState(() => pane.isUploading = false);
+    }
+  }
+
+  void _showUploadError(String msg) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Upload failed: $msg', style: HackerTheme.monoNoGlow(size: 11, color: Colors.black)),
+        backgroundColor: HackerTheme.red, duration: const Duration(seconds: 2)));
+    }
+  }
+
+  Future<bool> _handlePaste(int paneIdx) async {
+    // Try clipboard image first (desktop)
+    if (!kIsWeb) {
+      try {
+        final imageBytes = await Pasteboard.image;
+        if (imageBytes != null && imageBytes.isNotEmpty) {
+          final filename = 'clipboard_${DateTime.now().millisecondsSinceEpoch}.png';
+          await _uploadAndAttach(paneIdx, imageBytes, filename);
+          return true; // handled
+        }
+      } catch (_) {}
+    }
+    return false; // not handled, let default paste work
+  }
+
+  void _showAttachMenu(int paneIdx) {
+    final mobile = _isMobile(context);
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: HackerTheme.bgPanel,
+      shape: const RoundedRectangleBorder(
+        side: BorderSide(color: HackerTheme.green),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(4)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text('[ ATTACH ]', style: HackerTheme.mono(size: 14)),
+          const SizedBox(height: 16),
+          if (!kIsWeb) ListTile(
+            leading: Icon(Icons.camera_alt, color: HackerTheme.green, size: 20),
+            title: Text('CAMERA', style: HackerTheme.mono(size: 12)),
+            onTap: () { Navigator.pop(ctx); _pickImage(paneIdx, ImageSource.camera); },
+          ),
+          ListTile(
+            leading: Icon(Icons.photo_library, color: HackerTheme.green, size: 20),
+            title: Text('GALLERY', style: HackerTheme.mono(size: 12)),
+            onTap: () { Navigator.pop(ctx); _pickImage(paneIdx, ImageSource.gallery); },
+          ),
+          ListTile(
+            leading: Icon(Icons.content_paste, color: HackerTheme.green, size: 20),
+            title: Text('PASTE IMAGE FROM CLIPBOARD', style: HackerTheme.mono(size: 12)),
+            onTap: () { Navigator.pop(ctx); _handlePaste(paneIdx); },
+          ),
+        ]),
+      ),
+    );
+  }
+
   void _sendPromptForPane(int paneIdx) {
     final pane = _panes[paneIdx];
     final text = pane.promptController.text.trim();
@@ -329,10 +431,21 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     pane.promptHistory.add(text);
     pane.historyIndex = -1;
     pane.historyDraft = '';
-    _ws.sendPrompt(pane.sessionId!, text);
+
+    // Build prompt with image attachments
+    String finalPrompt = text;
+    if (pane.attachments.isNotEmpty) {
+      final paths = pane.attachments.map((a) => a['serverPath']).join(', ');
+      finalPrompt = 'I have attached ${pane.attachments.length} image(s) at: $paths\n\nPlease read and analyze the image(s) first, then respond to my message:\n\n$text';
+    }
+
+    _ws.sendPrompt(pane.sessionId!, finalPrompt);
     pane.promptController.clear();
     pane.promptFocus.requestFocus();
-    setState(() => pane.isProcessing = true);
+    setState(() {
+      pane.isProcessing = true;
+      pane.attachments.clear();
+    });
   }
 
   void _onPaneInputKey(KeyEvent event, int paneIdx) {
@@ -847,31 +960,89 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     final session = pane.sessionId != null ? _sessions.firstWhere((s) => s['id'] == pane.sessionId, orElse: () => null) : null;
     final isRunning = session?['status'] == 'active';
     final canSend = pane.sessionId != null && isRunning && !pane.isProcessing;
+    final canAttach = pane.sessionId != null && isRunning && !pane.isUploading;
     final compact = _viewMode != ViewMode.single;
 
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: compact ? 6 : 12, vertical: compact ? 6 : 10),
-      decoration: BoxDecoration(color: HackerTheme.bgPanel,
-        border: const Border(top: BorderSide(color: HackerTheme.green, width: 1)),
-        boxShadow: [BoxShadow(color: HackerTheme.greenDim, blurRadius: 4)]),
-      child: Row(children: [
-        Text('> ', style: HackerTheme.mono(size: compact ? 12 : 16)),
-        Expanded(child: KeyboardListener(focusNode: FocusNode(), onKeyEvent: (e) => _onPaneInputKey(e, paneIdx),
-          child: TextField(controller: pane.promptController, focusNode: pane.promptFocus, enabled: canSend,
-            style: HackerTheme.monoNoGlow(size: compact ? 11 : 14, color: HackerTheme.green), cursorColor: HackerTheme.green,
-            decoration: InputDecoration(
-              hintText: pane.isProcessing ? 'WAITING...' : pane.sessionId == null ? 'SELECT SESSION...' : !isRunning ? 'START FIRST...' : 'ENTER COMMAND...',
-              hintStyle: HackerTheme.monoNoGlow(color: pane.isProcessing ? HackerTheme.amber : HackerTheme.dimText, size: compact ? 11 : 14),
-              border: InputBorder.none, contentPadding: EdgeInsets.zero),
-            onSubmitted: (_) => _sendPromptForPane(paneIdx)))),
-        const SizedBox(width: 4),
-        InkWell(onTap: canSend ? () => _sendPromptForPane(paneIdx) : null,
-          child: Container(padding: EdgeInsets.symmetric(horizontal: compact ? 8 : 16, vertical: compact ? 4 : 8),
-            decoration: BoxDecoration(color: canSend ? HackerTheme.green : HackerTheme.bgCard,
-              border: Border.all(color: canSend ? HackerTheme.green : HackerTheme.borderDim),
-              boxShadow: canSend ? [BoxShadow(color: HackerTheme.greenGlow, blurRadius: 8)] : null),
-            child: Text(pane.isProcessing ? 'WAIT' : 'SEND', style: HackerTheme.monoNoGlow(size: compact ? 9 : 12, color: canSend ? Colors.black : HackerTheme.dimText)))),
-      ]),
-    );
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+      // Attachment chips
+      if (pane.attachments.isNotEmpty)
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          decoration: const BoxDecoration(color: HackerTheme.bgCard,
+            border: Border(top: BorderSide(color: HackerTheme.borderDim))),
+          child: Row(children: [
+            Icon(Icons.attach_file, size: 12, color: HackerTheme.cyan),
+            const SizedBox(width: 4),
+            Expanded(child: SingleChildScrollView(scrollDirection: Axis.horizontal,
+              child: Row(children: pane.attachments.asMap().entries.map((e) {
+                final bytes = e.value['bytes'] as Uint8List?;
+                return Container(
+                  margin: const EdgeInsets.only(right: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                  decoration: BoxDecoration(border: Border.all(color: HackerTheme.cyan, width: 0.5)),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    if (bytes != null) ClipRRect(
+                      borderRadius: BorderRadius.circular(2),
+                      child: Image.memory(bytes, width: 24, height: 24, fit: BoxFit.cover)),
+                    if (bytes != null) const SizedBox(width: 4),
+                    Text(e.value['filename'] ?? 'image', style: HackerTheme.mono(size: 9, color: HackerTheme.cyan)),
+                    const SizedBox(width: 4),
+                    InkWell(
+                      onTap: () => setState(() => pane.attachments.removeAt(e.key)),
+                      child: Text('x', style: HackerTheme.mono(size: 9, color: HackerTheme.red))),
+                  ]),
+                );
+              }).toList()),
+            )),
+          ]),
+        ),
+      // Upload progress
+      if (pane.isUploading)
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          color: HackerTheme.bgCard,
+          child: Row(children: [
+            SizedBox(width: 10, height: 10, child: CircularProgressIndicator(strokeWidth: 1, color: HackerTheme.cyan)),
+            const SizedBox(width: 6),
+            Text('UPLOADING...', style: HackerTheme.mono(size: 9, color: HackerTheme.cyan)),
+          ]),
+        ),
+      Container(
+        padding: EdgeInsets.symmetric(horizontal: compact ? 6 : 12, vertical: compact ? 6 : 10),
+        decoration: BoxDecoration(color: HackerTheme.bgPanel,
+          border: const Border(top: BorderSide(color: HackerTheme.green, width: 1)),
+          boxShadow: [BoxShadow(color: HackerTheme.greenDim, blurRadius: 4)]),
+        child: Row(children: [
+          // Attach button
+          InkWell(onTap: canAttach ? () => _showAttachMenu(paneIdx) : null,
+            child: Padding(padding: EdgeInsets.only(right: compact ? 4 : 8),
+              child: Icon(Icons.add_photo_alternate, size: compact ? 16 : 20,
+                color: canAttach ? HackerTheme.cyan : HackerTheme.dimText))),
+          Text('> ', style: HackerTheme.mono(size: compact ? 12 : 16)),
+          Expanded(child: KeyboardListener(focusNode: FocusNode(), onKeyEvent: (e) {
+              _onPaneInputKey(e, paneIdx);
+              // Intercept Cmd/Ctrl+V for image paste
+              if (e is KeyDownEvent && e.logicalKey == LogicalKeyboardKey.keyV &&
+                  (HardwareKeyboard.instance.isMetaPressed || HardwareKeyboard.instance.isControlPressed)) {
+                _handlePaste(paneIdx);
+              }
+            },
+            child: TextField(controller: pane.promptController, focusNode: pane.promptFocus, enabled: canSend,
+              style: HackerTheme.monoNoGlow(size: compact ? 11 : 14, color: HackerTheme.green), cursorColor: HackerTheme.green,
+              decoration: InputDecoration(
+                hintText: pane.isProcessing ? 'WAITING...' : pane.sessionId == null ? 'SELECT SESSION...' : !isRunning ? 'START FIRST...' : 'ENTER COMMAND...',
+                hintStyle: HackerTheme.monoNoGlow(color: pane.isProcessing ? HackerTheme.amber : HackerTheme.dimText, size: compact ? 11 : 14),
+                border: InputBorder.none, contentPadding: EdgeInsets.zero),
+              onSubmitted: (_) => _sendPromptForPane(paneIdx)))),
+          const SizedBox(width: 4),
+          InkWell(onTap: canSend ? () => _sendPromptForPane(paneIdx) : null,
+            child: Container(padding: EdgeInsets.symmetric(horizontal: compact ? 8 : 16, vertical: compact ? 4 : 8),
+              decoration: BoxDecoration(color: canSend ? HackerTheme.green : HackerTheme.bgCard,
+                border: Border.all(color: canSend ? HackerTheme.green : HackerTheme.borderDim),
+                boxShadow: canSend ? [BoxShadow(color: HackerTheme.greenGlow, blurRadius: 8)] : null),
+              child: Text(pane.isProcessing ? 'WAIT' : 'SEND', style: HackerTheme.monoNoGlow(size: compact ? 9 : 12, color: canSend ? Colors.black : HackerTheme.dimText)))),
+        ]),
+      ),
+    ]);
   }
 }

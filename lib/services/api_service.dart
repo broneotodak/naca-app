@@ -70,4 +70,13 @@ class ApiService {
     );
     return jsonDecode(res.body);
   }
+
+  static Future<Map<String, dynamic>> uploadImage(String base64Data, String filename) async {
+    final res = await http.post(
+      Uri.parse('${AppConfig.apiBaseUrl}/api/upload'),
+      headers: _headers,
+      body: jsonEncode({'data': base64Data, 'filename': filename}),
+    );
+    return jsonDecode(res.body);
+  }
 }
