@@ -1,5 +1,5 @@
 class AppConfig {
   static const String apiBaseUrl = 'http://YOUR_SERVER_IP:3100';
   static const String wsUrl = 'ws://YOUR_SERVER_IP:3100';
-  static const String authToken = 'YOUR_AUTH_TOKEN_HERE';
+  static const String authToken = 'ccc_sk_YOUR_TOKEN_HERE';
 }

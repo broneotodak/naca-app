@@ -55,6 +55,14 @@ class ApiService {
     );
   }
 
+  static Future<void> renameSession(String id, String name) async {
+    await http.patch(
+      Uri.parse('${AppConfig.apiBaseUrl}/api/sessions/$id'),
+      headers: _headers,
+      body: jsonEncode({'name': name}),
+    );
+  }
+
   static Future<Map<String, dynamic>> getHistory(String id) async {
     final res = await http.get(
       Uri.parse('${AppConfig.apiBaseUrl}/api/sessions/$id/history'),

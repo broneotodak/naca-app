@@ -9,7 +9,7 @@ const sm = new SessionManager();
 
 const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
@@ -37,10 +37,27 @@ const server = http.createServer((req, res) => {
   }
 
   const sessionMatch = path.match(/^\/api\/sessions\/([a-f0-9-]+)$/);
+
   if (sessionMatch && req.method === 'GET') {
     const s = sm.get(sessionMatch[1]);
     if (!s?.id) { json(res, { error: 'not found' }, 404); return; }
     json(res, s);
+    return;
+  }
+
+  if (sessionMatch && req.method === 'PATCH') {
+    readBody(req, (body) => {
+      try {
+        sm.renameSession(sessionMatch[1], body.name);
+        json(res, { ok: true });
+      } catch (e) { json(res, { error: e.message }, 500); }
+    });
+    return;
+  }
+
+  if (sessionMatch && req.method === 'DELETE') {
+    try { sm.deleteSession(sessionMatch[1]); json(res, { ok: true }); }
+    catch (e) { json(res, { error: e.message }, 500); }
     return;
   }
 
@@ -58,13 +75,6 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  const deleteMatch = path.match(/^\/api\/sessions\/([a-f0-9-]+)$/);
-  if (deleteMatch && req.method === 'DELETE') {
-    try { sm.deleteSession(deleteMatch[1]); json(res, { ok: true }); }
-    catch (e) { json(res, { error: e.message }, 500); }
-    return;
-  }
-
   if (path === '/api/health') {
     json(res, { status: 'ok', uptime: process.uptime(), sessions: sm.list().length });
     return;
@@ -75,17 +85,35 @@ const server = http.createServer((req, res) => {
 
 const wss = new WebSocketServer({ server });
 
+// Ping all clients every 30s to keep connections alive
+const pingInterval = setInterval(() => {
+  wss.clients.forEach(ws => {
+    if (ws.isAlive === false) { ws.terminate(); return; }
+    ws.isAlive = false;
+    ws.ping();
+  });
+}, 30000);
+
+wss.on('close', () => clearInterval(pingInterval));
+
 wss.on('connection', (ws, req) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const token = url.searchParams.get('token');
   if (token !== AUTH_TOKEN) { ws.close(4001, 'Unauthorized'); return; }
+
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
 
   console.log('[WS] Client connected');
   let subscribedSession = null;
 
   const onEvent = (event) => {
     if (subscribedSession && event.sessionId !== subscribedSession) return;
-    ws.send(JSON.stringify(event));
+    try {
+      ws.send(JSON.stringify(event));
+    } catch (e) {
+      console.error('[WS] Send error:', e.message);
+    }
   };
   sm.on('event', onEvent);
 
@@ -93,8 +121,13 @@ wss.on('connection', (ws, req) => {
     try {
       const msg = JSON.parse(raw.toString());
       switch (msg.action) {
+        case 'ping': {
+          ws.send(JSON.stringify({ type: 'pong' }));
+          break;
+        }
         case 'subscribe': {
           subscribedSession = msg.sessionId;
+          console.log(`[WS] Subscribe to session ${msg.sessionId.substring(0, 8)}`);
           const buffer = sm.getBuffer(msg.sessionId);
           if (buffer.length > 0) ws.send(JSON.stringify({ type: 'replay', events: buffer }));
           ws.send(JSON.stringify({ type: 'subscribed', sessionId: msg.sessionId }));
@@ -106,6 +139,7 @@ wss.on('connection', (ws, req) => {
             ws.send(JSON.stringify({ type: 'error', content: 'sessionId and content required' }));
             break;
           }
+          console.log(`[WS] Prompt for ${msg.sessionId.substring(0, 8)}: "${msg.content.substring(0, 50)}"`);
           try { sm.sendPrompt(msg.sessionId, msg.content); }
           catch (e) { ws.send(JSON.stringify({ type: 'error', content: e.message })); }
           break;
@@ -116,7 +150,10 @@ wss.on('connection', (ws, req) => {
     }
   });
 
-  ws.on('close', () => { sm.removeListener('event', onEvent); console.log('[WS] Client disconnected'); });
+  ws.on('close', () => {
+    sm.removeListener('event', onEvent);
+    console.log('[WS] Client disconnected');
+  });
 });
 
 server.listen(PORT, '0.0.0.0', () => {

@@ -11,9 +11,11 @@ class SessionManager extends EventEmitter {
 
   list() {
     const rows = db.prepare('SELECT * FROM sessions ORDER BY created_at DESC').all();
+    const turnCounts = db.prepare("SELECT session_id, COUNT(*) as turns FROM messages WHERE role = 'user' GROUP BY session_id").all();
+    const turnMap = Object.fromEntries(turnCounts.map(t => [t.session_id, t.turns]));
     return rows.map(r => {
       const live = this.sessions.get(r.id);
-      return { ...r, status: live?.status || r.status };
+      return { ...r, status: live?.status || r.status, turns: turnMap[r.id] || 0 };
     });
   }
 
@@ -59,12 +61,18 @@ class SessionManager extends EventEmitter {
       throw new Error('Claude is still processing. Please wait.');
     }
 
+    console.log(`[PROMPT] Session ${id.substring(0, 8)}: "${prompt.substring(0, 60)}"`);
+
     const msgResult = db.prepare('INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)')
       .run(id, 'user', prompt);
     this._emitEvent(id, { type: 'user_message', content: prompt, messageId: msgResult.lastInsertRowid });
     this._emitEvent(id, { type: 'status', content: 'processing' });
 
     session.promptCount++;
+    // Track seen blocks by tool_use ID to avoid duplicates
+    session.seenToolUseIds = new Set();
+    session.seenTextHashes = new Set();
+    session.emittedResult = false;
 
     const escapedPrompt = prompt.replace(/'/g, "'\\''");
     let claudeCmd = `cd '${session.projectDir}' && claude -p '${escapedPrompt}' --output-format stream-json --verbose --dangerously-skip-permissions`;
@@ -72,6 +80,8 @@ class SessionManager extends EventEmitter {
     if (session.claudeSessionId) {
       claudeCmd += ` --resume '${session.claudeSessionId}'`;
     }
+
+    console.log(`[CLAUDE] Starting process for ${id.substring(0, 8)}, resume: ${session.claudeSessionId ? 'yes' : 'no'}`);
 
     const proc = spawn('su', ['-', 'lanccc', '-c', claudeCmd], {
       env: { ...process.env, HOME: '/home/lanccc' },
@@ -94,6 +104,7 @@ class SessionManager extends EventEmitter {
           const event = JSON.parse(line);
           if (event.type === 'system' && event.subtype === 'init' && event.session_id) {
             session.claudeSessionId = event.session_id;
+            console.log(`[CLAUDE] Session ID: ${event.session_id.substring(0, 8)}`);
           }
           this._handleEvent(id, event);
         } catch {
@@ -108,11 +119,14 @@ class SessionManager extends EventEmitter {
     proc.stderr.on('data', (chunk) => {
       const text = chunk.toString().trim();
       if (text && !text.includes('Warning: no stdin')) {
+        console.log(`[CLAUDE:STDERR] ${id.substring(0, 8)}: ${text.substring(0, 200)}`);
         this._emitEvent(id, { type: 'stderr', content: text });
       }
     });
 
     proc.on('close', (code) => {
+      console.log(`[CLAUDE] Process closed for ${id.substring(0, 8)}, code: ${code}`);
+
       if (outputBuffer.trim()) {
         try {
           const event = JSON.parse(outputBuffer);
@@ -134,6 +148,7 @@ class SessionManager extends EventEmitter {
     });
 
     proc.on('error', (err) => {
+      console.error(`[CLAUDE] Process error for ${id.substring(0, 8)}: ${err.message}`);
       session.activeProcess = null;
       session.status = 'error';
       db.prepare("UPDATE sessions SET status = 'error', updated_at = datetime('now') WHERE id = ?").run(id);
@@ -157,6 +172,11 @@ class SessionManager extends EventEmitter {
     db.prepare("UPDATE sessions SET status = 'idle', updated_at = datetime('now') WHERE id = ?").run(id);
   }
 
+  renameSession(id, name) {
+    if (!name) throw new Error("name required");
+    db.prepare("UPDATE sessions SET name = ?, updated_at = datetime('now') WHERE id = ?").run(name, id);
+  }
+
   deleteSession(id) {
     this.stopSession(id);
     db.prepare('DELETE FROM tool_calls WHERE session_id = ?').run(id);
@@ -165,19 +185,37 @@ class SessionManager extends EventEmitter {
   }
 
   _handleEvent(id, event) {
-    if (event.type === 'system') {
-      if (['hook_started', 'hook_response', 'init'].includes(event.subtype)) return;
-      return;
-    }
+    // Skip system events (hooks, init)
+    if (event.type === 'system') return;
+    // Skip rate limit events
+    if (event.type === 'rate_limit_event') return;
+
+    const session = this.sessions.get(id);
 
     if (event.type === 'assistant' && event.message) {
       const content = event.message.content || [];
+
       for (const block of content) {
-        if (block.type === 'text') {
+        // Skip thinking blocks
+        if (block.type === 'thinking') continue;
+
+        if (block.type === 'text' && block.text) {
+          // Deduplicate text blocks by hash
+          const hash = this._hash(block.text);
+          if (session?.seenTextHashes?.has(hash)) continue;
+          if (session) session.seenTextHashes.add(hash);
+
+          console.log(`[EVENT] assistant_text for ${id.substring(0, 8)}: "${block.text.substring(0, 80)}..."`);
           db.prepare('INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)')
             .run(id, 'assistant', block.text);
           this._emitEvent(id, { type: 'assistant_text', content: block.text });
+          if (session) session.emittedResult = true;
         } else if (block.type === 'tool_use') {
+          // Deduplicate tool calls by ID
+          if (session?.seenToolUseIds?.has(block.id)) continue;
+          if (session) session.seenToolUseIds.add(block.id);
+
+          console.log(`[EVENT] tool_call for ${id.substring(0, 8)}: ${block.name}`);
           const tcResult = db.prepare('INSERT INTO tool_calls (session_id, tool_name, tool_input, status) VALUES (?, ?, ?, ?)')
             .run(id, block.name, JSON.stringify(block.input), 'running');
           this._emitEvent(id, {
@@ -195,10 +233,34 @@ class SessionManager extends EventEmitter {
         db.prepare("UPDATE tool_calls SET status = 'done', tool_result = ? WHERE id = ?")
           .run(JSON.stringify(event.content || event.result || ''), lastTc.id);
       }
-      this._emitEvent(id, { type: 'tool_result', result: event.content || event.result });
-    } else if (event.type === 'result' || event.type === 'rate_limit_event') {
-      return;
+      const resultContent = JSON.stringify(event.content || event.result || '');
+      this._emitEvent(id, {
+        type: 'tool_result',
+        content: resultContent.length > 3000 ? resultContent.substring(0, 3000) + '... (truncated)' : resultContent
+      });
+    } else if (event.type === 'result') {
+      // Fallback: if no assistant_text was emitted, use result text
+      if (session && !session.emittedResult && event.result && !event.is_error) {
+        console.log(`[EVENT] result-fallback for ${id.substring(0, 8)}: "${event.result.substring(0, 80)}..."`);
+        db.prepare('INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)')
+          .run(id, 'assistant', event.result);
+        this._emitEvent(id, { type: 'assistant_text', content: event.result });
+      }
+      // Log errors from result events
+      if (event.is_error && event.errors) {
+        console.error(`[CLAUDE:ERROR] ${id.substring(0, 8)}: ${event.errors.join('; ').substring(0, 200)}`);
+        this._emitEvent(id, { type: 'system', content: `Error: ${event.errors.join('; ')}` });
+      }
     }
+  }
+
+  _hash(str) {
+    // Simple fast hash for dedup
+    let h = 0;
+    for (let i = 0; i < str.length; i++) {
+      h = ((h << 5) - h + str.charCodeAt(i)) | 0;
+    }
+    return h;
   }
 
   _emitEvent(id, event) {

@@ -3,16 +3,16 @@ import 'theme.dart';
 import 'screens/home_screen.dart';
 
 void main() {
-  runApp(const LanCCCApp());
+  runApp(const CCCApp());
 }
 
-class LanCCCApp extends StatelessWidget {
-  const LanCCCApp({super.key});
+class CCCApp extends StatelessWidget {
+  const CCCApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'LAN CCC',
+      title: 'CCC',
       debugShowCheckedModeBanner: false,
       theme: HackerTheme.themeData,
       home: const HomeScreen(),
