@@ -71,6 +71,13 @@ class ApiService {
     return jsonDecode(res.body);
   }
 
+  static Future<void> restartSession(String id) async {
+    await http.post(
+      Uri.parse('${AppConfig.apiBaseUrl}/api/sessions/$id/restart'),
+      headers: _headers,
+    );
+  }
+
   static Future<Map<String, dynamic>> uploadImage(String base64Data, String filename) async {
     final res = await http.post(
       Uri.parse('${AppConfig.apiBaseUrl}/api/upload'),

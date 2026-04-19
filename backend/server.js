@@ -81,6 +81,18 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  const restartMatch = urlPath.match(/^\/api\/sessions\/([a-f0-9-]+)\/restart$/);
+  if (restartMatch && req.method === 'POST') {
+    try {
+      sm.stopSession(restartMatch[1]);
+      setTimeout(() => {
+        try { sm.startSession(restartMatch[1]); } catch {}
+      }, 500);
+      json(res, { ok: true });
+    } catch (e) { json(res, { error: e.message }, 500); }
+    return;
+  }
+
   if (urlPath === '/api/upload' && req.method === 'POST') {
     readBody(req, (body) => {
       try {

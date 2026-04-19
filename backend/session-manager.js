@@ -275,7 +275,40 @@ class SessionManager extends EventEmitter {
 
   getBuffer(id) {
     const session = this.sessions.get(id);
-    return session?.buffer || [];
+    if (session?.buffer?.length > 0) return session.buffer;
+    // Fallback: reconstruct from SQLite
+    return this._reconstructFromDb(id);
+  }
+
+  _reconstructFromDb(id) {
+    const messages = db.prepare(
+      'SELECT role, content, created_at FROM messages WHERE session_id = ? ORDER BY created_at ASC LIMIT 200'
+    ).all(id);
+    const tools = db.prepare(
+      'SELECT tool_name, tool_input, tool_result, status, created_at FROM tool_calls WHERE session_id = ? ORDER BY created_at ASC LIMIT 400'
+    ).all(id);
+
+    // Merge messages and tools by timestamp into event stream
+    const events = [];
+    let mi = 0, ti = 0;
+    while (mi < messages.length || ti < tools.length) {
+      const msg = messages[mi];
+      const tool = tools[ti];
+      if (msg && (!tool || msg.created_at <= tool.created_at)) {
+        const type = msg.role === 'user' ? 'user_message' : 'assistant_text';
+        events.push({ sessionId: id, type, content: msg.content, timestamp: new Date(msg.created_at + 'Z').getTime() });
+        mi++;
+      } else if (tool) {
+        let input = {};
+        try { input = JSON.parse(tool.tool_input); } catch {}
+        events.push({ sessionId: id, type: 'tool_call', name: tool.tool_name, input, timestamp: new Date(tool.created_at + 'Z').getTime() });
+        if (tool.tool_result) {
+          events.push({ sessionId: id, type: 'tool_result', content: tool.tool_result, timestamp: new Date(tool.created_at + 'Z').getTime() });
+        }
+        ti++;
+      }
+    }
+    return events;
   }
 
   getHistory(id, limit = 50) {

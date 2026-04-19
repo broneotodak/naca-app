@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:pasteboard/pasteboard.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../theme.dart';
 import '../services/api_service.dart';
 import '../services/ws_service.dart';
@@ -331,6 +332,26 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
   }
 
+  void _refreshPane(int paneIdx) {
+    final pane = _panes[paneIdx];
+    if (pane.sessionId == null) return;
+    final sid = pane.sessionId!;
+    _ws.unsubscribe(sid);
+    setState(() => pane.clear());
+    pane.sessionId = sid;
+    _ws.subscribe(sid);
+  }
+
+  Future<void> _restartSession(int paneIdx) async {
+    final pane = _panes[paneIdx];
+    if (pane.sessionId == null) return;
+    try {
+      await ApiService.restartSession(pane.sessionId!);
+      await _loadSessions();
+      _refreshPane(paneIdx);
+    } catch (_) {}
+  }
+
   Future<void> _pickImage(int paneIdx, ImageSource source) async {
     final pane = _panes[paneIdx];
     if (pane.sessionId == null) return;
@@ -544,8 +565,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           if (isMulti) _buildPaneHeader(paneIdx),
           // Terminal view
           Expanded(child: _buildTerminalView(paneIdx)),
-          // Processing bar
-          if (pane.isProcessing) _buildProcessingBar(paneIdx),
+          // Processing bar or action bar
+          if (pane.isProcessing) _buildProcessingBar(paneIdx)
+          else if (pane.sessionId != null) _buildActionBar(paneIdx),
           // Input bar
           _buildInputBar(paneIdx),
         ]),
@@ -592,6 +614,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         if (mobile) InkWell(onTap: () => setState(() => _sidebarOpen = !_sidebarOpen),
           child: Padding(padding: const EdgeInsets.only(right: 10), child: Text('[\u2630]', style: HackerTheme.mono(size: 16)))),
         Text('CCC', style: HackerTheme.mono(size: 13)),
+        const SizedBox(width: 4),
+        Text('v1.0', style: HackerTheme.mono(size: 8, color: HackerTheme.dimText)),
         const SizedBox(width: 6),
         Text('///', style: HackerTheme.mono(size: 10, color: HackerTheme.borderDim)),
         const SizedBox(width: 6),
@@ -821,12 +845,39 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       child: Text(icon, style: HackerTheme.mono(size: 10, color: color))));
   }
 
+  Widget _buildActionBar(int paneIdx) {
+    final compact = _viewMode != ViewMode.single;
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: compact ? 4 : 8, vertical: 2),
+      decoration: const BoxDecoration(color: HackerTheme.bgCard,
+        border: Border(top: BorderSide(color: HackerTheme.borderDim, width: 0.5))),
+      child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+        _actionBtn('REFRESH', Icons.refresh, HackerTheme.cyan, () => _refreshPane(paneIdx)),
+        const SizedBox(width: 6),
+        _actionBtn('RESTART', Icons.restart_alt, HackerTheme.amber, () => _restartSession(paneIdx)),
+      ]),
+    );
+  }
+
+  Widget _actionBtn(String label, IconData icon, Color color, VoidCallback onTap) {
+    return InkWell(onTap: onTap, child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(icon, size: 12, color: color),
+        const SizedBox(width: 3),
+        Text(label, style: HackerTheme.mono(size: 8, color: color)),
+      ]),
+    ));
+  }
+
   Widget _buildProcessingBar(int paneIdx) {
     return Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), color: HackerTheme.bgCard,
       child: Row(children: [
         SizedBox(width: 10, height: 10, child: CircularProgressIndicator(strokeWidth: 1, color: HackerTheme.green)),
         const SizedBox(width: 6),
         Text('THINKING...', style: HackerTheme.mono(size: 9, color: HackerTheme.amber)),
+        const Spacer(),
+        _actionBtn('FORCE STOP', Icons.stop, HackerTheme.red, () => _stopSession(_panes[paneIdx].sessionId!)),
       ]));
   }
 
@@ -885,7 +936,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   Widget _buildAssistantMessage(String c, PaneState pane, int index) {
     return Container(margin: const EdgeInsets.symmetric(vertical: 3), padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Expanded(child: MarkdownBody(data: c, selectable: true, styleSheet: MarkdownStyleSheet(
+        Expanded(child: MarkdownBody(data: c, selectable: true,
+          onTapLink: (text, href, title) {
+            if (href != null) launchUrl(Uri.parse(href), mode: LaunchMode.externalApplication);
+          },
+          styleSheet: MarkdownStyleSheet(
           p: HackerTheme.monoNoGlow(size: 12, color: HackerTheme.green),
           h1: HackerTheme.mono(size: 16, color: HackerTheme.cyan), h2: HackerTheme.mono(size: 14, color: HackerTheme.cyan),
           h3: HackerTheme.mono(size: 13, color: HackerTheme.cyan), h4: HackerTheme.mono(size: 12, color: HackerTheme.cyan),
@@ -895,7 +950,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           listBullet: HackerTheme.monoNoGlow(size: 12, color: HackerTheme.green),
           strong: HackerTheme.monoNoGlow(size: 12, color: HackerTheme.white),
           em: HackerTheme.monoNoGlow(size: 12, color: HackerTheme.cyan),
-          a: HackerTheme.monoNoGlow(size: 12, color: HackerTheme.cyan),
+          a: HackerTheme.monoNoGlow(size: 12, color: HackerTheme.cyan).copyWith(decoration: TextDecoration.underline, decorationColor: HackerTheme.cyan),
           blockquoteDecoration: BoxDecoration(color: HackerTheme.bgCard, border: const Border(left: BorderSide(color: HackerTheme.green, width: 3))),
           blockquotePadding: const EdgeInsets.all(8),
           tableBorder: TableBorder.all(color: HackerTheme.borderDim),
