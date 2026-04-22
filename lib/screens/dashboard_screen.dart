@@ -414,10 +414,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
-        // Intent submission button
-        _buildIntentButton(),
-        const SizedBox(height: 16),
-
         // System status
         _section('SYSTEM STATUS'),
         _buildServiceGrid(),
