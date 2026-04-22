@@ -6,6 +6,14 @@ const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 const SessionManager = require('./session-manager');
 
+// === NACA: Supabase for agent state ===
+let supabase = null;
+if (process.env.NEO_BRAIN_URL && process.env.NEO_BRAIN_SERVICE_ROLE_KEY) {
+  const { createClient } = require('@supabase/supabase-js');
+  supabase = createClient(process.env.NEO_BRAIN_URL, process.env.NEO_BRAIN_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+  console.log('[NACA] Supabase connected to neo-brain');
+}
+
 const UPLOAD_DIR = '/tmp/ccc-uploads';
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
@@ -13,7 +21,7 @@ const PORT = parseInt(process.env.PORT || '3100');
 const AUTH_TOKEN = process.env.AUTH_TOKEN;
 const sm = new SessionManager();
 
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -117,6 +125,88 @@ const server = http.createServer((req, res) => {
 
   if (urlPath === '/api/health') {
     json(res, { status: 'ok', uptime: process.uptime(), sessions: sm.list().length });
+    return;
+  }
+
+  // =============================================
+  // NACA ENDPOINTS — Agent Dashboard Data
+  // =============================================
+
+  // GET /api/agents/heartbeats — all agent health status
+  if (urlPath === '/api/agents/heartbeats' && req.method === 'GET') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    try {
+      const { data, error } = await supabase.from('agent_heartbeats').select('*').order('reported_at', { ascending: false });
+      if (error) throw error;
+      json(res, { heartbeats: data || [] });
+    } catch (e) { json(res, { error: e.message }, 500); }
+    return;
+  }
+
+  // GET /api/agents/commands?status=pending&limit=20 — command queue
+  if (urlPath === '/api/agents/commands' && req.method === 'GET') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    try {
+      const status = url.searchParams.get('status');
+      const limit = parseInt(url.searchParams.get('limit') || '20');
+      let q = supabase.from('agent_commands').select('*').order('created_at', { ascending: false }).limit(limit);
+      if (status) q = q.eq('status', status);
+      const { data, error } = await q;
+      if (error) throw error;
+      json(res, { commands: data || [] });
+    } catch (e) { json(res, { error: e.message }, 500); }
+    return;
+  }
+
+  // POST /api/agents/commands — dispatch a command to an agent
+  if (urlPath === '/api/agents/commands' && req.method === 'POST') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    readBody(req, async (body) => {
+      try {
+        const { to_agent, command, payload, priority } = body;
+        if (!to_agent || !command) { json(res, { error: 'to_agent and command required' }, 400); return; }
+        const { data, error } = await supabase.from('agent_commands').insert({
+          from_agent: 'naca-app',
+          to_agent,
+          command,
+          payload: payload || {},
+          priority: priority || 5,
+        }).select().single();
+        if (error) throw error;
+        json(res, { ok: true, command: data }, 201);
+      } catch (e) { json(res, { error: e.message }, 500); }
+    });
+    return;
+  }
+
+  // GET /api/agents/locks — active project locks
+  if (urlPath === '/api/agents/locks' && req.method === 'GET') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    try {
+      const { data, error } = await supabase.from('agent_locks').select('*');
+      if (error) throw error;
+      json(res, { locks: data || [] });
+    } catch (e) { json(res, { error: e.message }, 500); }
+    return;
+  }
+
+  // GET /api/agents/summary — dashboard overview (heartbeats + pending commands + locks)
+  if (urlPath === '/api/agents/summary' && req.method === 'GET') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    try {
+      const [hb, pending, running, failed, locks] = await Promise.all([
+        supabase.from('agent_heartbeats').select('*'),
+        supabase.from('agent_commands').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+        supabase.from('agent_commands').select('id', { count: 'exact', head: true }).eq('status', 'running'),
+        supabase.from('agent_commands').select('id', { count: 'exact', head: true }).in('status', ['failed', 'dead_letter', 'needs_review']),
+        supabase.from('agent_locks').select('*'),
+      ]);
+      json(res, {
+        agents: hb.data || [],
+        queue: { pending: pending.count || 0, running: running.count || 0, failed: failed.count || 0 },
+        locks: locks.data || [],
+      });
+    } catch (e) { json(res, { error: e.message }, 500); }
     return;
   }
 

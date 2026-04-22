@@ -86,4 +86,25 @@ class ApiService {
     );
     return jsonDecode(res.body);
   }
+
+  // === NACA Agent Endpoints ===
+
+  /// Generic GET for NACA endpoints
+  Future<Map<String, dynamic>> get(String path) async {
+    final res = await http.get(
+      Uri.parse('${AppConfig.apiBaseUrl}$path'),
+      headers: _headers,
+    );
+    return jsonDecode(res.body);
+  }
+
+  /// Generic POST for NACA endpoints
+  Future<Map<String, dynamic>> post(String path, Map<String, dynamic> body) async {
+    final res = await http.post(
+      Uri.parse('${AppConfig.apiBaseUrl}$path'),
+      headers: _headers,
+      body: jsonEncode(body),
+    );
+    return jsonDecode(res.body);
+  }
 }
