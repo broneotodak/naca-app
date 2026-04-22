@@ -298,7 +298,8 @@ wss.on('connection', (ws, req) => {
           subscribedSession = msg.sessionId;
           console.log(`[WS] Subscribe to session ${msg.sessionId.substring(0, 8)}`);
           const buffer = sm.getBuffer(msg.sessionId);
-          if (buffer.length > 0) ws.send(JSON.stringify({ type: 'replay', events: buffer }));
+          console.log(`[WS] Replay buffer for ${msg.sessionId.substring(0, 8)}: ${buffer.length} events`);
+          if (buffer.length > 0) ws.send(JSON.stringify({ type: 'replay', sessionId: msg.sessionId, events: buffer }));
           ws.send(JSON.stringify({ type: 'subscribed', sessionId: msg.sessionId }));
           break;
         }
