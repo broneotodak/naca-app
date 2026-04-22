@@ -1055,7 +1055,19 @@ class _ConfigTabState extends State<_ConfigTab> {
   late String _unknownPolicy;
   late TextEditingController _unknownReplyCtrl;
   late TextEditingController _personaCtrl;
+  late TextEditingController _voiceIdCtrl;
+  late String _voiceModel;
+  late String _defaultReplyMode;
   bool _saving = false;
+
+  static const _voiceModels = [
+    'eleven_flash_v2_5',
+    'eleven_multilingual_v2',
+    'eleven_turbo_v2_5',
+    'eleven_monolingual_v1',
+  ];
+
+  static const _replyModes = ['text', 'voice', 'auto'];
 
   @override
   void initState() {
@@ -1063,6 +1075,11 @@ class _ConfigTabState extends State<_ConfigTab> {
     _unknownPolicy = (widget.settings['unknown_sender_policy'] ?? 'reply_once').toString();
     _unknownReplyCtrl = TextEditingController(text: widget.settings['unknown_sender_reply']?.toString() ?? '');
     _personaCtrl = TextEditingController(text: widget.settings['default_persona']?.toString() ?? '');
+    _voiceIdCtrl = TextEditingController(text: widget.settings['voice_id']?.toString() ?? '');
+    _voiceModel = widget.settings['voice_model']?.toString() ?? 'eleven_flash_v2_5';
+    if (!_voiceModels.contains(_voiceModel)) _voiceModel = 'eleven_flash_v2_5';
+    _defaultReplyMode = widget.settings['default_reply_mode']?.toString() ?? 'text';
+    if (!_replyModes.contains(_defaultReplyMode)) _defaultReplyMode = 'text';
   }
 
   @override
@@ -1072,6 +1089,11 @@ class _ConfigTabState extends State<_ConfigTab> {
       _unknownPolicy = (widget.settings['unknown_sender_policy'] ?? 'reply_once').toString();
       _unknownReplyCtrl.text = widget.settings['unknown_sender_reply']?.toString() ?? '';
       _personaCtrl.text = widget.settings['default_persona']?.toString() ?? '';
+      _voiceIdCtrl.text = widget.settings['voice_id']?.toString() ?? '';
+      _voiceModel = widget.settings['voice_model']?.toString() ?? 'eleven_flash_v2_5';
+      if (!_voiceModels.contains(_voiceModel)) _voiceModel = 'eleven_flash_v2_5';
+      _defaultReplyMode = widget.settings['default_reply_mode']?.toString() ?? 'text';
+      if (!_replyModes.contains(_defaultReplyMode)) _defaultReplyMode = 'text';
     }
   }
 
@@ -1079,6 +1101,7 @@ class _ConfigTabState extends State<_ConfigTab> {
   void dispose() {
     _unknownReplyCtrl.dispose();
     _personaCtrl.dispose();
+    _voiceIdCtrl.dispose();
     super.dispose();
   }
 
@@ -1179,6 +1202,114 @@ class _ConfigTabState extends State<_ConfigTab> {
         ),
         const SizedBox(height: 16),
 
+        // Voice settings
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Text('// VOICE SETTINGS (ElevenLabs)', style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.dimText)),
+        ),
+
+        // Default reply mode
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: HackerTheme.terminalBox(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Default Reply Mode', style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.cyan)),
+              const SizedBox(height: 4),
+              Text('How Siti responds by default (can be overridden per contact)', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText)),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                initialValue: _defaultReplyMode,
+                dropdownColor: HackerTheme.bgPanel,
+                style: HackerTheme.monoNoGlow(size: 12, color: HackerTheme.white),
+                decoration: const InputDecoration(
+                  enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: HackerTheme.borderDim)),
+                  focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: HackerTheme.green)),
+                ),
+                items: _replyModes.map((m) {
+                  final c = switch (m) {
+                    'voice' => HackerTheme.amber,
+                    'auto' => HackerTheme.cyan,
+                    _ => HackerTheme.green,
+                  };
+                  final desc = switch (m) {
+                    'text' => 'TEXT — always text replies',
+                    'voice' => 'VOICE — always voice notes',
+                    'auto' => 'AUTO — voice if they send voice, else text',
+                    _ => m.toUpperCase(),
+                  };
+                  return DropdownMenuItem(value: m, child: Text(desc, style: HackerTheme.monoNoGlow(size: 10, color: c)));
+                }).toList(),
+                onChanged: (v) { if (v != null) setState(() => _defaultReplyMode = v); },
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Voice model
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: HackerTheme.terminalBox(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Voice Model', style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.cyan)),
+              const SizedBox(height: 4),
+              Text('ElevenLabs TTS model for voice replies', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText)),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                initialValue: _voiceModel,
+                dropdownColor: HackerTheme.bgPanel,
+                style: HackerTheme.monoNoGlow(size: 12, color: HackerTheme.white),
+                decoration: const InputDecoration(
+                  enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: HackerTheme.borderDim)),
+                  focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: HackerTheme.green)),
+                ),
+                items: _voiceModels.map((m) {
+                  final label = switch (m) {
+                    'eleven_flash_v2_5' => 'Flash v2.5 (fastest, recommended)',
+                    'eleven_multilingual_v2' => 'Multilingual v2 (best quality)',
+                    'eleven_turbo_v2_5' => 'Turbo v2.5 (balanced)',
+                    'eleven_monolingual_v1' => 'Monolingual v1 (English only)',
+                    _ => m,
+                  };
+                  return DropdownMenuItem(value: m, child: Text(label, style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.white)));
+                }).toList(),
+                onChanged: (v) { if (v != null) setState(() => _voiceModel = v); },
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Voice ID
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: HackerTheme.terminalBox(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Voice ID', style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.cyan)),
+              const SizedBox(height: 4),
+              Text('ElevenLabs voice ID (e.g. AFIFAH clone)', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText)),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _voiceIdCtrl,
+                style: HackerTheme.monoNoGlow(size: 11, color: HackerTheme.white),
+                decoration: const InputDecoration(
+                  hintText: 'ElevenLabs voice ID',
+                  hintStyle: TextStyle(color: HackerTheme.dimText, fontSize: 10),
+                  enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: HackerTheme.borderDim)),
+                  focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: HackerTheme.green)),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
         // Save button
         Center(
           child: GestureDetector(
@@ -1188,6 +1319,9 @@ class _ConfigTabState extends State<_ConfigTab> {
                 'unknown_sender_policy': _unknownPolicy,
                 'unknown_sender_reply': _unknownReplyCtrl.text.trim(),
                 'default_persona': _personaCtrl.text.trim(),
+                'voice_id': _voiceIdCtrl.text.trim(),
+                'voice_model': _voiceModel,
+                'default_reply_mode': _defaultReplyMode,
               });
               if (mounted) setState(() => _saving = false);
             },

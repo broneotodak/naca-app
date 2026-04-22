@@ -23,6 +23,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<Map<String, dynamic>> _locks = [];
   List<Map<String, dynamic>> _recentCmds = [];
 
+  // Cost data
+  List<Map<String, dynamic>> _costServices = [];
+  double _totalCost = 0;
+
   // Service health
   Map<String, _ServiceStatus> _services = {};
 
@@ -56,8 +60,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _loadAll() async {
     try {
-      // Parallel: agent data + service health
-      await Future.wait([_loadAgentData(), _checkServices()]);
+      // Parallel: agent data + service health + costs
+      await Future.wait([_loadAgentData(), _checkServices(), _loadCosts()]);
       if (mounted) setState(() { _loading = false; _error = null; _lastRefresh = DateTime.now(); });
     } catch (e) {
       if (mounted) setState(() { _error = e.toString(); _loading = false; });
@@ -151,6 +155,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (mounted) _services = results;
   }
 
+  Future<void> _loadCosts() async {
+    try {
+      final res = await http.get(
+        Uri.parse('${AppConfig.apiBaseUrl}/api/costs'),
+        headers: {
+          'Authorization': 'Bearer ${AppConfig.authToken}',
+          'Content-Type': 'application/json',
+        },
+      ).timeout(const Duration(seconds: 10));
+      if (res.statusCode < 400 && mounted) {
+        final data = jsonDecode(res.body);
+        _costServices = List<Map<String, dynamic>>.from(data['services'] ?? []);
+        _totalCost = (data['totalEstimate'] as num?)?.toDouble() ?? 0;
+      }
+    } catch (_) {
+      // Non-critical — cost data just won't show
+    }
+  }
+
   Future<_ServiceStatus> _pingHttp(String url, {Map<String, String>? headers}) async {
     try {
       final sw = Stopwatch()..start();
@@ -217,6 +240,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _section('SYSTEM STATUS'),
         _buildServiceGrid(),
         const SizedBox(height: 16),
+
+        // Cost monitor
+        if (_costServices.isNotEmpty) ...[
+          _section('COST MONITOR'),
+          _buildCostPanel(),
+          const SizedBox(height: 16),
+        ],
 
         // Agent fleet
         _section('AGENT FLEET'),
@@ -419,6 +449,88 @@ class _DashboardScreenState extends State<DashboardScreen> {
         )),
         if (createdAt != null) Text(_timeAgo(DateTime.parse(createdAt)), style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.grey)),
       ]),
+    );
+  }
+
+  Widget _buildCostPanel() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: HackerTheme.terminalBox(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Total
+          Row(
+            children: [
+              Text('MONTHLY TOTAL', style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.dimText)),
+              const Spacer(),
+              Text(
+                '\$${_totalCost.toStringAsFixed(0)}/mo',
+                style: HackerTheme.mono(size: 16, color: _totalCost > 150 ? HackerTheme.amber : HackerTheme.green),
+              ),
+            ],
+          ),
+          const Divider(color: HackerTheme.borderDim, height: 16),
+          // Per-service breakdown
+          ..._costServices.map((s) {
+            final name = s['name'] ?? '?';
+            final cost = (s['cost'] as num?)?.toDouble() ?? 0;
+            final currency = (s['currency'] ?? 'usd').toString().toUpperCase();
+            final usage = s['usage'] ?? '';
+            final usagePct = (s['usagePct'] as num?)?.toInt();
+            final status = s['status'] ?? '';
+            final note = s['note'];
+
+            final isEstimate = status == 'estimated';
+            final costColor = cost == 0 ? HackerTheme.dimText : cost > 50 ? HackerTheme.amber : HackerTheme.green;
+
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(name.toString(), style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.white)),
+                      ),
+                      Text(
+                        cost == 0 ? 'FREE' : '${isEstimate ? '~' : ''}\$$cost $currency',
+                        style: HackerTheme.monoNoGlow(size: 10, color: costColor),
+                      ),
+                    ],
+                  ),
+                  Row(
+                    children: [
+                      if (usage.toString().isNotEmpty)
+                        Expanded(child: Text(usage.toString(), style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.grey))),
+                      if (usagePct != null) ...[
+                        const SizedBox(width: 8),
+                        SizedBox(
+                          width: 60,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(2),
+                            child: LinearProgressIndicator(
+                              value: usagePct / 100,
+                              backgroundColor: HackerTheme.bgPanel,
+                              color: usagePct > 80 ? HackerTheme.red : usagePct > 50 ? HackerTheme.amber : HackerTheme.green,
+                              minHeight: 4,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Text('$usagePct%', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.grey)),
+                      ],
+                    ],
+                  ),
+                  if (note != null)
+                    Text(note.toString(), style: HackerTheme.monoNoGlow(size: 7, color: HackerTheme.dimText)),
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
     );
   }
 

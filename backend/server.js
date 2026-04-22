@@ -211,6 +211,91 @@ const server = http.createServer(async (req, res) => {
   }
 
   // =============================================
+  // COST MONITOR — ElevenLabs subscription + usage estimates
+  // =============================================
+  if (urlPath === '/api/costs' && req.method === 'GET') {
+    const costs = { services: [], totalEstimate: 0 };
+
+    // ElevenLabs — direct API call (key from env)
+    const elKey = process.env.ELEVENLABS_API_KEY;
+    if (elKey) {
+      try {
+        const elRes = await new Promise((resolve, reject) => {
+          const https = require('https');
+          const req = https.get('https://api.elevenlabs.io/v1/user/subscription', {
+            headers: { 'xi-api-key': elKey },
+            timeout: 8000,
+          }, (res) => {
+            let body = '';
+            res.on('data', c => body += c);
+            res.on('end', () => {
+              try { resolve(JSON.parse(body)); } catch { resolve(null); }
+            });
+          });
+          req.on('error', reject);
+          req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+        });
+        if (elRes) {
+          costs.services.push({
+            name: 'ElevenLabs',
+            tier: elRes.tier,
+            cost: (elRes.next_invoice?.amount_due_cents || 0) / 100,
+            currency: elRes.currency || 'usd',
+            usage: `${elRes.character_count?.toLocaleString() || 0} / ${elRes.character_limit?.toLocaleString() || 0} chars`,
+            usagePct: elRes.character_limit ? Math.round((elRes.character_count / elRes.character_limit) * 100) : 0,
+            resetUnix: elRes.next_character_count_reset_unix,
+            status: elRes.status,
+          });
+        }
+      } catch (_) {
+        costs.services.push({ name: 'ElevenLabs', cost: 22, currency: 'usd', usage: 'API unreachable', status: 'unknown' });
+      }
+    }
+
+    // Hetzner VPS — fixed cost
+    costs.services.push({ name: 'Hetzner VPS (CPX31)', cost: 28, currency: 'eur', usage: 'Fixed', status: 'active' });
+
+    // Supabase (neo-brain) — free tier
+    costs.services.push({ name: 'Supabase (neo-brain)', cost: 0, currency: 'usd', usage: 'Free tier', status: 'active' });
+
+    // Claude API — estimate from agent_commands in last 30 days
+    if (supabase) {
+      try {
+        const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
+        const { count } = await supabase.from('agent_commands')
+          .select('id', { count: 'exact', head: true })
+          .gte('created_at', thirtyDaysAgo);
+        const estimatedCost = Math.round((count || 0) * 0.15); // ~$0.15 per command avg
+        costs.services.push({
+          name: 'Claude API (Anthropic)',
+          cost: estimatedCost || 50,
+          currency: 'usd',
+          usage: `~${count || 0} commands (30d)`,
+          status: 'estimated',
+          note: estimatedCost < 10 ? 'Low usage — estimate $30-50/mo baseline' : null,
+        });
+      } catch (_) {
+        costs.services.push({ name: 'Claude API (Anthropic)', cost: 50, currency: 'usd', usage: 'Estimate', status: 'estimated' });
+      }
+    } else {
+      costs.services.push({ name: 'Claude API (Anthropic)', cost: 50, currency: 'usd', usage: 'Estimate', status: 'estimated' });
+    }
+
+    // Gemini — free
+    costs.services.push({ name: 'Gemini (Google)', cost: 0, currency: 'usd', usage: 'Free tier', status: 'active' });
+
+    // Total
+    costs.totalEstimate = costs.services.reduce((sum, s) => {
+      const usd = s.currency === 'eur' ? s.cost * 1.08 : s.cost;
+      return sum + usd;
+    }, 0);
+    costs.totalCurrency = 'usd';
+
+    json(res, costs);
+    return;
+  }
+
+  // =============================================
   // SITI PROXY — forward to localhost:3800 (same VPS, no CORS issue)
   // =============================================
   if (urlPath.startsWith('/api/siti/')) {
