@@ -216,17 +216,36 @@ const server = http.createServer(async (req, res) => {
   if (urlPath.startsWith('/api/siti/')) {
     const sitiPath = urlPath.replace('/api/siti', '');
     const sitiPin = process.env.SITI_PIN || '404282';
-    const sitiUrl = `http://localhost:3800${sitiPath}`;
-    const proxyReq = http.get(sitiUrl, { timeout: 8000, headers: { 'x-pin': sitiPin } }, (proxyRes) => {
-      let body = '';
-      proxyRes.on('data', c => body += c);
-      proxyRes.on('end', () => {
-        res.writeHead(proxyRes.statusCode || 200, { 'Content-Type': 'application/json' });
-        res.end(body);
+    const sitiUrl = new URL(`http://localhost:3800${sitiPath}`);
+
+    // Read request body for POST/PATCH/DELETE
+    readBody(req, (reqBody) => {
+      const options = {
+        hostname: sitiUrl.hostname,
+        port: sitiUrl.port,
+        path: sitiUrl.pathname + sitiUrl.search,
+        method: req.method,
+        timeout: 15000,
+        headers: {
+          'x-pin': sitiPin,
+          'content-type': 'application/json',
+        },
+      };
+
+      const proxyReq = http.request(options, (proxyRes) => {
+        let body = '';
+        proxyRes.on('data', c => body += c);
+        proxyRes.on('end', () => {
+          res.writeHead(proxyRes.statusCode || 200, { 'Content-Type': 'application/json' });
+          res.end(body);
+        });
       });
+      proxyReq.on('error', (err) => json(res, { error: `Siti unreachable: ${err.message}` }, 502));
+      if (reqBody && Object.keys(reqBody).length > 0) {
+        proxyReq.write(JSON.stringify(reqBody));
+      }
+      proxyReq.end();
     });
-    proxyReq.on('error', (err) => json(res, { error: `Siti unreachable: ${err.message}` }, 502));
-    proxyReq.end();
     return;
   }
 
