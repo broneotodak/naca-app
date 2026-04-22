@@ -767,7 +767,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ])),
         Expanded(child: _sessions.isEmpty
           ? Center(child: Text('NO SESSIONS', style: HackerTheme.mono(size: 10, color: HackerTheme.dimText)))
-          : ListView.builder(itemCount: _sessions.length, itemBuilder: (_, i) => _buildSessionTile(_sessions[i]))),
+          : _buildGroupedSessionList()),
         Padding(padding: const EdgeInsets.all(8), child: InkWell(onTap: _createSession,
           child: Container(padding: const EdgeInsets.symmetric(vertical: 10),
             decoration: BoxDecoration(border: Border.all(color: HackerTheme.green)),
@@ -776,7 +776,41 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
-  Widget _buildSessionTile(dynamic session) {
+  Widget _buildGroupedSessionList() {
+    // Group sessions by source
+    final nacaSessions = _sessions.where((s) => (s['source'] ?? 'naca') == 'naca').toList();
+    final importedSessions = _sessions.where((s) => (s['source'] ?? 'naca') != 'naca').toList();
+
+    return ListView(children: [
+      if (nacaSessions.isNotEmpty) ...[
+        _sessionGroupHeader('NACA TERMINAL', nacaSessions.length, HackerTheme.green),
+        ...nacaSessions.map(_buildSessionTile),
+      ],
+      if (importedSessions.isNotEmpty) ...[
+        _sessionGroupHeader('VPS CLI SESSIONS', importedSessions.length, HackerTheme.cyan),
+        ...importedSessions.map((s) => _buildSessionTile(s, imported: true)),
+      ],
+    ]);
+  }
+
+  Widget _sessionGroupHeader(String label, int count, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: const BoxDecoration(
+        color: HackerTheme.bgContent,
+        border: Border(bottom: BorderSide(color: HackerTheme.borderDim, width: 0.5)),
+      ),
+      child: Row(children: [
+        Container(width: 4, height: 4, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+        const SizedBox(width: 6),
+        Text(label, style: HackerTheme.monoNoGlow(size: 8, color: color)),
+        const Spacer(),
+        Text('$count', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText)),
+      ]),
+    );
+  }
+
+  Widget _buildSessionTile(dynamic session, {bool imported = false}) {
     final id = session['id'] as String;
     final name = session['name'] as String;
     final status = session['status'] as String;
@@ -789,11 +823,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     final paneIndex = _panes.indexWhere((p) => p.sessionId == id);
     final isInAnyPane = paneIndex >= 0;
 
+    final source = session['source'] ?? 'naca';
+    final agent = session['agent'] as String?;
+
     Color badgeColor; String badgeText;
     switch (status) {
       case 'active': badgeColor = HackerTheme.green; badgeText = 'RUN';
       case 'error': badgeColor = HackerTheme.red; badgeText = 'ERR';
-      default: badgeColor = HackerTheme.grey; badgeText = 'IDLE';
+      default: badgeColor = imported ? HackerTheme.cyan : HackerTheme.grey; badgeText = imported ? 'CLI' : 'IDLE';
     }
 
     return InkWell(
@@ -823,6 +860,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 ),
             ]),
             Row(children: [
+              if (agent != null) ...[
+                Text(agent, style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.cyan)),
+                const SizedBox(width: 6),
+              ],
               Expanded(child: Text(session['project_dir'] ?? '/home/openclaw', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.dimText), overflow: TextOverflow.ellipsis)),
               if (turns > 0) Text('$turns turns', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText)),
             ]),

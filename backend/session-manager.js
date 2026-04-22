@@ -25,11 +25,11 @@ class SessionManager extends EventEmitter {
     return { ...row, isLive: !!live, status: live?.status || row?.status || 'idle' };
   }
 
-  create(name, projectDir) {
+  create(name, projectDir, { source = 'naca', agent = null } = {}) {
     const id = uuidv4();
-    db.prepare('INSERT INTO sessions (id, name, project_dir, status) VALUES (?, ?, ?, ?)')
-      .run(id, name, projectDir || '/home/openclaw', 'idle');
-    return { id, name, projectDir };
+    db.prepare('INSERT INTO sessions (id, name, project_dir, status, source, agent) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(id, name, projectDir || '/home/openclaw', 'idle', source, agent);
+    return { id, name, projectDir, source, agent };
   }
 
   async startSession(id) {

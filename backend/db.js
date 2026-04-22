@@ -40,6 +40,14 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_tool_calls_session ON tool_calls(session_id, created_at);
 `);
 
+// Migration: add source + agent columns if missing
+try {
+  db.exec(`ALTER TABLE sessions ADD COLUMN source TEXT DEFAULT 'naca'`);
+} catch (_) {} // Column already exists
+try {
+  db.exec(`ALTER TABLE sessions ADD COLUMN agent TEXT DEFAULT NULL`);
+} catch (_) {}
+
 module.exports = db;
 
 // Reset zombie sessions on startup (backend restart clears in-memory state)

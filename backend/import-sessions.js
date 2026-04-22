@@ -117,8 +117,12 @@ for (const file of files) {
     ? new Date(firstTimestamp).toISOString().replace('T', ' ').substring(0, 19)
     : new Date().toISOString().replace('T', ' ').substring(0, 19);
 
-  db.prepare('INSERT INTO sessions (id, name, project_dir, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(id, sessionName, '/home/openclaw', 'idle', createdAt, createdAt);
+  // Detect source: check if from VPS CLI or API
+  const source = 'vps-cli'; // Direct CLI sessions on VPS
+  const agent = 'claude-code-vps';
+
+  db.prepare('INSERT INTO sessions (id, name, project_dir, status, source, agent, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, sessionName, '/home/openclaw', 'idle', source, agent, createdAt, createdAt);
 
   // Insert messages
   const insertMsg = db.prepare('INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)');
