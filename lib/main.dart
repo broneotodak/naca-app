@@ -9,6 +9,7 @@ import 'screens/memory_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/realtime_service.dart';
 import 'services/sound_service.dart';
+import 'screens/lock_screen.dart';
 import 'config.dart';
 
 void main() async {
@@ -36,8 +37,26 @@ class NacaApp extends StatelessWidget {
       title: 'NACA',
       debugShowCheckedModeBanner: false,
       theme: HackerTheme.themeData,
-      home: const NacaShell(),
+      home: const _AuthGate(),
     );
+  }
+}
+
+class _AuthGate extends StatefulWidget {
+  const _AuthGate();
+  @override
+  State<_AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<_AuthGate> {
+  bool _unlocked = false;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_unlocked) {
+      return LockScreen(onUnlocked: () => setState(() => _unlocked = true));
+    }
+    return const NacaShell();
   }
 }
 
