@@ -658,79 +658,78 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   Widget _buildSessionTabs() {
     final focusedPane = _panes[_focusedPane];
+    final currentSession = focusedPane.sessionId != null
+        ? _sessions.cast<Map<String, dynamic>?>().firstWhere(
+            (s) => s?['id'] == focusedPane.sessionId, orElse: () => null)
+        : null;
+    final sessionName = currentSession?['name'] ?? 'NO SESSION';
+    final sessionStatus = currentSession?['status'] ?? 'idle';
+    final isRunning = sessionStatus == 'active';
+
     return Container(
-      height: 36,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: const BoxDecoration(
         color: HackerTheme.bgPanel,
         border: Border(bottom: BorderSide(color: HackerTheme.borderDim, width: 1)),
       ),
       child: Row(children: [
-        Expanded(
-          child: ListView.builder(
-            scrollDirection: Axis.horizontal,
-            itemCount: _sessions.length,
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            itemBuilder: (_, i) {
-              final session = _sessions[i];
-              final id = session['id'] as String;
-              final name = session['name'] as String;
-              final status = session['status'] as String;
-              final turns = session['turns'] ?? 0;
-              final isActive = id == focusedPane.sessionId;
-              final isRunning = status == 'active';
-
-              return GestureDetector(
-                onTap: () => _selectSessionForPane(id, _focusedPane),
-                onLongPress: () => _renameSession(id, name),
-                child: Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  decoration: BoxDecoration(
-                    color: isActive ? HackerTheme.greenDim : Colors.transparent,
-                    border: Border.all(
-                      color: isActive ? HackerTheme.green : HackerTheme.borderDim,
-                      width: isActive ? 1 : 0.5,
-                    ),
-                  ),
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    Container(
-                      width: 5, height: 5,
-                      margin: const EdgeInsets.only(right: 6),
-                      decoration: BoxDecoration(
-                        color: isRunning ? HackerTheme.green : HackerTheme.grey,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    Text(
-                      name.toUpperCase(),
-                      style: HackerTheme.mono(
-                        size: 10,
-                        color: isActive ? HackerTheme.green : HackerTheme.dimText,
-                      ),
-                    ),
-                    if (turns > 0) ...[
-                      const SizedBox(width: 4),
-                      Text(
-                        '$turns',
-                        style: HackerTheme.mono(size: 8, color: HackerTheme.dimText),
-                      ),
-                    ],
-                  ]),
-                ),
-              );
-            },
+        // Session indicator
+        Container(
+          width: 8, height: 8,
+          decoration: BoxDecoration(
+            color: isRunning ? HackerTheme.green : HackerTheme.grey,
+            shape: BoxShape.circle,
+            boxShadow: isRunning ? [const BoxShadow(color: HackerTheme.greenGlow, blurRadius: 6)] : null,
           ),
         ),
+        const SizedBox(width: 8),
+        // Session name (tap to open sidebar)
+        Expanded(
+          child: GestureDetector(
+            onTap: () => setState(() => _sidebarOpen = true),
+            child: Text(
+              sessionName.toString().toUpperCase(),
+              style: HackerTheme.mono(size: 11, color: HackerTheme.green),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ),
+        // Action buttons — visible and touchable
+        if (currentSession != null) ...[
+          if (!isRunning) _mobileActionBtn('START', Icons.play_arrow, HackerTheme.green, () => _startSession(focusedPane.sessionId!)),
+          if (isRunning) _mobileActionBtn('STOP', Icons.stop, HackerTheme.red, () => _stopSession(focusedPane.sessionId!)),
+          const SizedBox(width: 6),
+          _mobileActionBtn('REFRESH', Icons.refresh, HackerTheme.cyan, () => _refreshPane(_focusedPane)),
+        ],
+        const SizedBox(width: 6),
+        // New session
         GestureDetector(
           onTap: _createSession,
           child: Container(
-            margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-            padding: const EdgeInsets.symmetric(horizontal: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(border: Border.all(color: HackerTheme.green, width: 0.5)),
-            child: Center(child: Text('+', style: HackerTheme.mono(size: 14))),
+            child: Text('+', style: HackerTheme.mono(size: 14)),
           ),
         ),
       ]),
+    );
+  }
+
+  Widget _mobileActionBtn(String label, IconData icon, Color color, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          border: Border.all(color: color.withValues(alpha: 0.6)),
+          color: color.withValues(alpha: 0.1),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 4),
+          Text(label, style: HackerTheme.monoNoGlow(size: 9, color: color)),
+        ]),
+      ),
     );
   }
 
@@ -942,7 +941,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 '  \u255a\u2550\u2550\u2550\u2550\u2550\u255d  \u255a\u2550\u2550\u2550\u2550\u2550\u255d  \u255a\u2550\u2550\u2550\u2550\u2550\u255d',
                 style: HackerTheme.mono(size: 14), textAlign: TextAlign.center),
               const SizedBox(height: 12),
-              Text('CLAUDE COMMAND CENTER', style: HackerTheme.mono(size: 12, color: HackerTheme.dimText)),
+              Text('NACA TERMINAL', style: HackerTheme.mono(size: 12, color: HackerTheme.dimText)),
               const SizedBox(height: 24),
               Text('> SELECT OR CREATE A SESSION', style: HackerTheme.mono(color: HackerTheme.dimText, size: 11)),
             ])

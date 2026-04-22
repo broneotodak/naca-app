@@ -32,7 +32,7 @@ class WsService {
     _channel?.sink.close();
 
     _setState(WsState.connecting);
-    final uri = Uri.parse('${AppConfig.wsUrl}?token=${AppConfig.authToken}');
+    final uri = Uri.parse('${AppConfig.wsUrl}/ws?token=${AppConfig.authToken}');
 
     try {
       _channel = WebSocketChannel.connect(uri);
@@ -125,7 +125,7 @@ class WsService {
   void _scheduleReconnect() {
     if (_disposed) return;
     _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(const Duration(seconds: 3), connect);
+    _reconnectTimer = Timer(const Duration(seconds: 10), connect);
   }
 
   void dispose() {
