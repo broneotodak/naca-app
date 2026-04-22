@@ -28,6 +28,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<Map<String, dynamic>> _costServices = [];
   double _totalCost = 0;
 
+  // Intents
+  List<Map<String, dynamic>> _intents = [];
+
   // Service health
   Map<String, _ServiceStatus> _services = {};
 
@@ -62,7 +65,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _loadAll() async {
     try {
-      await Future.wait([_loadAgentData(), _checkServices(), _loadCosts()]);
+      await Future.wait([_loadAgentData(), _checkServices(), _loadCosts(), _loadIntents()]);
       if (mounted) setState(() { _loading = false; _error = null; _lastRefresh = DateTime.now(); });
     } catch (e) {
       if (mounted) setState(() { _error = e.toString(); _loading = false; });
@@ -167,6 +170,125 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _totalCost = (data['totalEstimate'] as num?)?.toDouble() ?? 0;
       }
     } catch (_) {}
+  }
+
+  Future<void> _loadIntents() async {
+    try {
+      final data = await _sb.from('agent_intents')
+          .select()
+          .order('created_at', ascending: false)
+          .limit(10);
+      if (mounted) _intents = List<Map<String, dynamic>>.from(data);
+    } catch (_) {}
+  }
+
+  Future<void> _submitIntent(String text, {String source = 'naca-dashboard'}) async {
+    try {
+      await _sb.from('agent_intents').insert({
+        'source': source,
+        'raw_text': text,
+        'reporter': 'Neo (NACA)',
+        'status': 'pending',
+      });
+      SoundService.instance.playAcknowledged();
+      _showSnack('Intent submitted → planner-agent');
+      _loadAll();
+    } catch (e) {
+      SoundService.instance.playError();
+      _showSnack('Failed: $e', error: true);
+    }
+  }
+
+  void _showIntentDialog() {
+    final textCtrl = TextEditingController();
+    String source = 'naca-dashboard';
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          backgroundColor: HackerTheme.bgPanel,
+          shape: RoundedRectangleBorder(side: const BorderSide(color: HackerTheme.green)),
+          title: Row(
+            children: [
+              const Icon(Icons.bolt, color: HackerTheme.green, size: 20),
+              const SizedBox(width: 8),
+              Text('NEW INTENT', style: HackerTheme.mono(size: 14, color: HackerTheme.green)),
+            ],
+          ),
+          content: SizedBox(
+            width: 400,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Describe what you want done. Planner-agent will decompose it into commands for the right agents.',
+                  style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.dimText)),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: textCtrl,
+                  style: HackerTheme.monoNoGlow(size: 12, color: HackerTheme.white),
+                  decoration: InputDecoration(
+                    hintText: 'e.g. "Fix the login bug on academy"\n"Deploy hotfix to forex dashboard"\n"Send status report to Neo on WhatsApp"',
+                    hintStyle: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.dimText),
+                    enabledBorder: const OutlineInputBorder(borderSide: BorderSide(color: HackerTheme.borderDim)),
+                    focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: HackerTheme.green)),
+                  ),
+                  maxLines: 5,
+                  minLines: 3,
+                  autofocus: true,
+                ),
+                const SizedBox(height: 12),
+                // Source selector
+                Row(
+                  children: [
+                    Text('SOURCE: ', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.dimText)),
+                    ...<String>['naca-dashboard', 'manual', 'whatsapp'].map((s) {
+                      final active = source == s;
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: GestureDetector(
+                          onTap: () => setDialogState(() => source = s),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: active ? HackerTheme.green.withValues(alpha: 0.15) : Colors.transparent,
+                              border: Border.all(color: active ? HackerTheme.green : HackerTheme.borderDim),
+                            ),
+                            child: Text(s, style: HackerTheme.monoNoGlow(size: 8, color: active ? HackerTheme.green : HackerTheme.dimText)),
+                          ),
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: Text('CANCEL', style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.dimText)),
+            ),
+            TextButton(
+              onPressed: () {
+                if (textCtrl.text.trim().isEmpty) return;
+                Navigator.of(ctx).pop();
+                _submitIntent(textCtrl.text.trim(), source: source);
+              },
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.bolt, size: 14, color: HackerTheme.green),
+                  const SizedBox(width: 4),
+                  Text('SUBMIT', style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.green)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<_ServiceStatus> _pingHttp(String url, {Map<String, String>? headers}) async {
@@ -292,6 +414,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
+        // Intent submission button
+        _buildIntentButton(),
+        const SizedBox(height: 16),
+
         // System status
         _section('SYSTEM STATUS'),
         _buildServiceGrid(),
@@ -322,6 +448,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
           const SizedBox(height: 16),
         ],
 
+        // Intent feed
+        if (_intents.isNotEmpty) ...[
+          _section('RECENT INTENTS'),
+          ..._intents.map(_buildIntentCard),
+          const SizedBox(height: 16),
+        ],
+
         // Interactive command list
         _buildCommandList(),
         const SizedBox(height: 24),
@@ -333,6 +466,173 @@ class _DashboardScreenState extends State<DashboardScreen> {
     padding: const EdgeInsets.only(bottom: 8),
     child: Text('// $text', style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.dimText)),
   );
+
+  // ── INTENT BUTTON ──
+
+  Widget _buildIntentButton() {
+    return GestureDetector(
+      onTap: _showIntentDialog,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+        decoration: BoxDecoration(
+          color: HackerTheme.bgCard,
+          border: Border.all(color: HackerTheme.green, width: 1),
+          boxShadow: [const BoxShadow(color: HackerTheme.greenDim, blurRadius: 12)],
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                border: Border.all(color: HackerTheme.green.withValues(alpha: 0.5)),
+              ),
+              child: const Icon(Icons.bolt, size: 18, color: HackerTheme.green),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('DISPATCH INTENT', style: HackerTheme.mono(size: 12, color: HackerTheme.green)),
+                  Text('Tell the agents what to do — planner decomposes it', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText)),
+                ],
+              ),
+            ),
+            const Icon(Icons.arrow_forward, size: 16, color: HackerTheme.green),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── INTENT CARDS ──
+
+  Widget _buildIntentCard(Map<String, dynamic> intent) {
+    final id = intent['id']?.toString() ?? '';
+    final rawText = intent['raw_text'] ?? '';
+    final status = intent['status'] ?? 'pending';
+    final source = intent['source'] ?? '';
+    final reporter = intent['reporter'] ?? '';
+    final plan = intent['plan'];
+    final error = intent['error'];
+    final createdAt = intent['created_at'] as String?;
+    final dispatchedIds = intent['dispatched_command_ids'] as List?;
+    final isExpanded = _expandedCmds.contains('intent:$id');
+
+    final statusColor = switch (status.toString()) {
+      'pending' => HackerTheme.amber,
+      'decomposing' => HackerTheme.cyan,
+      'decomposed' => HackerTheme.green,
+      'failed' => HackerTheme.red,
+      'cancelled' => HackerTheme.grey,
+      _ => HackerTheme.dimText,
+    };
+
+    final statusIcon = switch (status.toString()) {
+      'pending' => Icons.hourglass_empty,
+      'decomposing' => Icons.psychology,
+      'decomposed' => Icons.check_circle_outline,
+      'failed' => Icons.error_outline,
+      'cancelled' => Icons.cancel_outlined,
+      _ => Icons.help_outline,
+    };
+
+    return GestureDetector(
+      onTap: () => setState(() {
+        final key = 'intent:$id';
+        if (isExpanded) { _expandedCmds.remove(key); } else { _expandedCmds.add(key); }
+      }),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: HackerTheme.bgCard,
+          border: Border(left: BorderSide(color: statusColor, width: 3)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header
+            Row(children: [
+              Icon(statusIcon, size: 14, color: statusColor),
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                decoration: BoxDecoration(border: Border.all(color: statusColor.withValues(alpha: 0.4))),
+                child: Text(status.toString().toUpperCase(), style: HackerTheme.monoNoGlow(size: 7, color: statusColor)),
+              ),
+              const SizedBox(width: 6),
+              if (source.toString().isNotEmpty)
+                Text(source.toString(), style: HackerTheme.monoNoGlow(size: 7, color: HackerTheme.dimText)),
+              const Spacer(),
+              if (createdAt != null) Text(_timeAgo(DateTime.parse(createdAt)), style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.grey)),
+              const SizedBox(width: 4),
+              Icon(isExpanded ? Icons.expand_less : Icons.expand_more, size: 14, color: HackerTheme.dimText),
+            ]),
+            const SizedBox(height: 4),
+            // Intent text
+            Text(
+              rawText.toString(),
+              style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.white),
+              maxLines: isExpanded ? 10 : 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            // Expanded details
+            if (isExpanded) ...[
+              const Divider(color: HackerTheme.borderDim, height: 12),
+              if (reporter.toString().isNotEmpty)
+                Text('Reporter: $reporter', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText)),
+              if (plan is Map && plan.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text('PLAN:', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.cyan)),
+                if (plan['reasoning'] != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(plan['reasoning'].toString(), style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.grey), maxLines: 5, overflow: TextOverflow.ellipsis),
+                  ),
+                if (plan['commands'] is List)
+                  ...((plan['commands'] as List).map((cmd) => Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Row(children: [
+                      Text('→ ', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.cyan)),
+                      Text('${cmd['to_agent'] ?? '?'}: ', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.cyan)),
+                      Expanded(child: Text(cmd['command']?.toString() ?? '?', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.white))),
+                    ]),
+                  ))),
+              ],
+              if (error != null) ...[
+                const SizedBox(height: 4),
+                Text('ERROR: $error', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.red)),
+              ],
+              if (dispatchedIds != null && dispatchedIds.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text('Dispatched ${dispatchedIds.length} command(s)', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.green)),
+              ],
+              // Cancel button for pending intents
+              if (status == 'pending') ...[
+                const SizedBox(height: 6),
+                Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                  GestureDetector(
+                    onTap: () async {
+                      await _sb.from('agent_intents').update({'status': 'cancelled'}).eq('id', id);
+                      SoundService.instance.playAcknowledged();
+                      _showSnack('Intent cancelled');
+                      _loadAll();
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(border: Border.all(color: HackerTheme.red)),
+                      child: Text('CANCEL', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.red)),
+                    ),
+                  ),
+                ]),
+              ],
+            ],
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _emptyState(String text) => Container(
     padding: const EdgeInsets.all(16),
