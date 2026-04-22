@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme.dart';
 import '../config.dart';
 import '../services/realtime_service.dart';
+import '../services/sound_service.dart';
 
 /// NACA HQ Dashboard — unified overview of all systems
 class DashboardScreen extends StatefulWidget {
@@ -30,6 +31,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // Service health
   Map<String, _ServiceStatus> _services = {};
 
+  // Expanded command IDs (for detail view)
+  final Set<String> _expandedCmds = {};
+
   bool _loading = true;
   String? _error;
   Timer? _timer;
@@ -44,8 +48,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.initState();
     _loadAll();
     _timer = Timer.periodic(const Duration(seconds: 15), (_) => _loadAll());
-
-    // Realtime: refresh on agent data changes
     _heartbeatSub = RealtimeService.instance.heartbeats.listen((_) => _loadAll());
     _commandSub = RealtimeService.instance.commands.listen((_) => _loadAll());
   }
@@ -60,7 +62,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _loadAll() async {
     try {
-      // Parallel: agent data + service health + costs
       await Future.wait([_loadAgentData(), _checkServices(), _loadCosts()]);
       if (mounted) setState(() { _loading = false; _error = null; _lastRefresh = DateTime.now(); });
     } catch (e) {
@@ -70,7 +71,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _loadAgentData() async {
     final agents = await _sb.from('agent_heartbeats').select().order('reported_at', ascending: false);
-    final commands = await _sb.from('agent_commands').select().order('created_at', ascending: false).limit(5);
+    final commands = await _sb.from('agent_commands').select().order('created_at', ascending: false).limit(20);
     final locks = await _sb.from('agent_locks').select();
     final pendingRes = await _sb.from('agent_commands').select('id').eq('status', 'pending').count(CountOption.exact);
     final runningRes = await _sb.from('agent_commands').select('id').eq('status', 'running').count(CountOption.exact);
@@ -95,7 +96,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ).timeout(const Duration(seconds: 5));
       if (sitiHealth.statusCode < 400) {
         final sitiData = jsonDecode(sitiHealth.body);
-        // Find or add Siti in agents list
         final sitiIdx = _agents.indexWhere((a) => a['agent_name'] == 'siti' || a['agent_name'] == 'nclaw-dashboard');
         final sitiEntry = {
           'agent_name': 'siti',
@@ -119,7 +119,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _checkServices() async {
     final results = <String, _ServiceStatus>{};
 
-    // VPS Backend — needs auth token + Content-Type for CORS preflight
     try {
       results['VPS Backend'] = await _pingHttp('${AppConfig.apiBaseUrl}/api/health', headers: {
         'Authorization': 'Bearer ${AppConfig.authToken}',
@@ -129,7 +128,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       results['VPS Backend'] = const _ServiceStatus(false, 'timeout');
     }
 
-    // Supabase — use the SDK directly (no raw REST)
     try {
       final sw = Stopwatch()..start();
       await _sb.from('agent_heartbeats').select('agent_name').limit(1);
@@ -139,7 +137,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       results['Supabase'] = const _ServiceStatus(false, 'error');
     }
 
-    // Siti — proxy through VPS backend on web, direct on mobile
     try {
       final sitiUrl = kIsWeb
           ? '${AppConfig.apiBaseUrl}/api/siti/api/health'
@@ -169,9 +166,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _costServices = List<Map<String, dynamic>>.from(data['services'] ?? []);
         _totalCost = (data['totalEstimate'] as num?)?.toDouble() ?? 0;
       }
-    } catch (_) {
-      // Non-critical — cost data just won't show
-    }
+    } catch (_) {}
   }
 
   Future<_ServiceStatus> _pingHttp(String url, {Map<String, String>? headers}) async {
@@ -184,6 +179,67 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return _ServiceStatus(false, 'error');
     }
   }
+
+  // ── ACTIONS ──
+
+  Future<void> _cancelCommand(String id) async {
+    try {
+      await _sb.from('agent_commands').update({
+        'status': 'cancelled',
+        'completed_at': DateTime.now().toUtc().toIso8601String(),
+        'result': {'cancelled_by': 'naca-app', 'reason': 'manual cancel from dashboard'},
+      }).eq('id', id);
+      SoundService.instance.playAcknowledged();
+      _showSnack('Command cancelled');
+      _loadAll();
+    } catch (e) {
+      _showSnack('Failed: $e', error: true);
+    }
+  }
+
+  Future<void> _retryCommand(Map<String, dynamic> cmd) async {
+    try {
+      await _sb.from('agent_commands').insert({
+        'from_agent': cmd['from_agent'] ?? 'naca-app',
+        'to_agent': cmd['to_agent'],
+        'command': cmd['command'],
+        'payload': cmd['payload'] ?? {},
+        'priority': cmd['priority'] ?? 5,
+      });
+      SoundService.instance.playAcknowledged();
+      _showSnack('Command re-queued');
+      _loadAll();
+    } catch (e) {
+      _showSnack('Failed: $e', error: true);
+    }
+  }
+
+  Future<void> _pingAgent(String agentName) async {
+    try {
+      await _sb.from('agent_commands').insert({
+        'from_agent': 'naca-app',
+        'to_agent': agentName,
+        'command': 'ping',
+        'payload': {'from': 'naca-dashboard', 'ts': DateTime.now().toUtc().toIso8601String()},
+        'priority': 1,
+      });
+      SoundService.instance.playSent();
+      _showSnack('Ping sent to $agentName');
+    } catch (e) {
+      _showSnack('Failed: $e', error: true);
+    }
+  }
+
+  void _showSnack(String msg, {bool error = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg, style: HackerTheme.monoNoGlow(size: 10, color: error ? HackerTheme.red : HackerTheme.green)),
+      backgroundColor: HackerTheme.bgCard,
+      duration: const Duration(seconds: 2),
+    ));
+  }
+
+  // ── BUILD ──
 
   @override
   Widget build(BuildContext context) {
@@ -236,7 +292,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
-        // Service health row
+        // System status
         _section('SYSTEM STATUS'),
         _buildServiceGrid(),
         const SizedBox(height: 16),
@@ -254,10 +310,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
         if (_agents.isEmpty) _emptyState('No agents reporting'),
         const SizedBox(height: 16),
 
-        // Command queue
+        // Command queue with filter
         _section('COMMAND QUEUE'),
         _buildQueueBar(),
-        const SizedBox(height: 16),
+        const SizedBox(height: 8),
 
         // Active locks
         if (_locks.isNotEmpty) ...[
@@ -266,10 +322,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           const SizedBox(height: 16),
         ],
 
-        // Recent activity
-        _section('RECENT COMMANDS'),
-        ..._recentCmds.map(_buildCmdRow),
-        if (_recentCmds.isEmpty) _emptyState('No recent commands'),
+        // Interactive command list
+        _buildCommandList(),
         const SizedBox(height: 24),
       ],
     );
@@ -285,6 +339,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     decoration: HackerTheme.terminalBox(),
     child: Center(child: Text(text, style: HackerTheme.monoNoGlow(size: 11, color: HackerTheme.dimText))),
   );
+
+  // ── SERVICE GRID ──
 
   Widget _buildServiceGrid() {
     final items = _services.entries.toList();
@@ -309,10 +365,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           child: Row(mainAxisSize: MainAxisSize.min, children: [
             Container(
               width: 6, height: 6,
-              decoration: BoxDecoration(
-                color: ok ? HackerTheme.green : HackerTheme.red,
-                shape: BoxShape.circle,
-              ),
+              decoration: BoxDecoration(color: ok ? HackerTheme.green : HackerTheme.red, shape: BoxShape.circle),
             ),
             const SizedBox(width: 8),
             Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -325,6 +378,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  // ── AGENT FLEET ──
+
   Widget _buildAgentCard(Map<String, dynamic> agent) {
     final name = agent['agent_name'] ?? '?';
     final status = agent['status'] ?? 'unknown';
@@ -333,6 +388,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     final isOk = status == 'ok';
     final isDeg = status == 'degraded';
+    final isOffline = status == 'offline';
     final statusColor = isOk ? HackerTheme.green : isDeg ? HackerTheme.amber : HackerTheme.red;
     final ago = reportedAt != null ? _timeAgo(DateTime.parse(reportedAt)) : 'never';
 
@@ -340,52 +396,185 @@ class _DashboardScreenState extends State<DashboardScreen> {
       margin: const EdgeInsets.only(bottom: 6),
       padding: const EdgeInsets.all(10),
       decoration: HackerTheme.terminalBox(active: isOk),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Status indicator
-          Container(
-            width: 10, height: 10,
-            decoration: BoxDecoration(
-              color: statusColor,
-              shape: BoxShape.circle,
-              boxShadow: [BoxShadow(color: statusColor.withValues(alpha: 0.5), blurRadius: 6)],
-            ),
+          Row(
+            children: [
+              // Status indicator with pulse effect
+              Container(
+                width: 10, height: 10,
+                decoration: BoxDecoration(
+                  color: statusColor,
+                  shape: BoxShape.circle,
+                  boxShadow: [BoxShadow(color: statusColor.withValues(alpha: 0.5), blurRadius: 6)],
+                ),
+              ),
+              const SizedBox(width: 10),
+              // Name
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(name.toString().toUpperCase(), style: HackerTheme.monoNoGlow(size: 12, color: statusColor)),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                          decoration: BoxDecoration(border: Border.all(color: statusColor.withValues(alpha: 0.4))),
+                          child: Text(status.toString().toUpperCase(), style: HackerTheme.monoNoGlow(size: 7, color: statusColor)),
+                        ),
+                      ],
+                    ),
+                    // Meta row
+                    Wrap(spacing: 10, children: [
+                      if (meta['version'] != null) Text('v${meta['version']}', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.grey)),
+                      if (meta['memory_mb'] != null) Text('${meta['memory_mb']}MB', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.grey)),
+                      if (meta['port'] != null) Text(':${meta['port']}', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.grey)),
+                      if (meta['sessions'] != null) Text('${meta['sessions']} sess', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.grey)),
+                      if (meta['wa_status'] != null) Text('wa:${meta['wa_status']}', style: HackerTheme.monoNoGlow(size: 8, color: meta['wa_status'] == 'connected' ? HackerTheme.green : HackerTheme.amber)),
+                      if (meta['model'] != null) Text(meta['model'].toString(), style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.cyan)),
+                      if (meta['uptime_s'] != null) Text('up ${_formatUptime(meta['uptime_s'])}', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.grey)),
+                    ]),
+                  ],
+                ),
+              ),
+              // Actions
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(ago, style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.grey)),
+                  const SizedBox(height: 4),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _agentAction(Icons.wifi_tethering, 'PING', HackerTheme.cyan, () => _pingAgent(name.toString())),
+                      const SizedBox(width: 4),
+                      if (!isOffline) _agentAction(Icons.restart_alt, 'CMD', HackerTheme.amber, () => _showCommandDialog(name.toString())),
+                    ],
+                  ),
+                ],
+              ),
+            ],
           ),
-          const SizedBox(width: 10),
-          // Name + meta
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(name.toString().toUpperCase(), style: HackerTheme.monoNoGlow(size: 12, color: statusColor)),
-                Wrap(spacing: 10, children: [
-                  if (meta['version'] != null) Text('v${meta['version']}', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.grey)),
-                  if (meta['memory_mb'] != null) Text('${meta['memory_mb']}MB', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.grey)),
-                  if (meta['wa_status'] != null) Text('wa:${meta['wa_status']}', style: HackerTheme.monoNoGlow(size: 8, color: meta['wa_status'] == 'connected' ? HackerTheme.green : HackerTheme.amber)),
-                  if (meta['model'] != null) Text(meta['model'].toString(), style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.cyan)),
-                ]),
-              ],
-            ),
-          ),
-          Text(ago, style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.grey)),
         ],
       ),
     );
   }
 
-  Widget _buildQueueBar() {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-      decoration: HackerTheme.terminalBox(),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _queueStat('PENDING', _queue['pending']!, HackerTheme.amber),
-          Container(width: 1, height: 30, color: HackerTheme.borderDim),
-          _queueStat('RUNNING', _queue['running']!, HackerTheme.cyan),
-          Container(width: 1, height: 30, color: HackerTheme.borderDim),
-          _queueStat('FAILED', _queue['failed']!, HackerTheme.red),
+  Widget _agentAction(IconData icon, String tooltip, Color color, VoidCallback onTap) {
+    return Tooltip(
+      message: tooltip,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(4),
+          decoration: BoxDecoration(border: Border.all(color: color.withValues(alpha: 0.3))),
+          child: Icon(icon, size: 12, color: color),
+        ),
+      ),
+    );
+  }
+
+  void _showCommandDialog(String agentName) {
+    final cmdCtrl = TextEditingController();
+    final payloadCtrl = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: HackerTheme.bgPanel,
+        shape: RoundedRectangleBorder(side: const BorderSide(color: HackerTheme.cyan)),
+        title: Text('COMMAND → ${agentName.toUpperCase()}', style: HackerTheme.mono(size: 13, color: HackerTheme.cyan)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: cmdCtrl,
+              style: HackerTheme.monoNoGlow(size: 12, color: HackerTheme.white),
+              decoration: InputDecoration(
+                labelText: 'Command',
+                labelStyle: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.dimText),
+                hintText: 'e.g. status_report, restart, investigate_bug',
+                hintStyle: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.dimText),
+                enabledBorder: const UnderlineInputBorder(borderSide: BorderSide(color: HackerTheme.borderDim)),
+                focusedBorder: const UnderlineInputBorder(borderSide: BorderSide(color: HackerTheme.cyan)),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: payloadCtrl,
+              style: HackerTheme.monoNoGlow(size: 11, color: HackerTheme.white),
+              decoration: InputDecoration(
+                labelText: 'Payload (JSON, optional)',
+                labelStyle: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.dimText),
+                enabledBorder: const UnderlineInputBorder(borderSide: BorderSide(color: HackerTheme.borderDim)),
+                focusedBorder: const UnderlineInputBorder(borderSide: BorderSide(color: HackerTheme.cyan)),
+              ),
+              maxLines: 3,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text('CANCEL', style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.dimText)),
+          ),
+          TextButton(
+            onPressed: () async {
+              if (cmdCtrl.text.trim().isEmpty) return;
+              Map<String, dynamic> payload = {};
+              if (payloadCtrl.text.trim().isNotEmpty) {
+                try { payload = Map<String, dynamic>.from(jsonDecode(payloadCtrl.text.trim()) as Map); }
+                catch (_) { _showSnack('Invalid JSON', error: true); return; }
+              }
+              Navigator.of(ctx).pop();
+              try {
+                await _sb.from('agent_commands').insert({
+                  'from_agent': 'naca-app',
+                  'to_agent': agentName,
+                  'command': cmdCtrl.text.trim(),
+                  'payload': payload,
+                  'priority': 5,
+                });
+                SoundService.instance.playAcknowledged();
+                _showSnack('Sent "${cmdCtrl.text.trim()}" → $agentName');
+                _loadAll();
+              } catch (e) {
+                _showSnack('Failed: $e', error: true);
+              }
+            },
+            child: Text('DISPATCH', style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.cyan)),
+          ),
         ],
+      ),
+    );
+  }
+
+  // ── COMMAND QUEUE ──
+
+  Widget _buildQueueBar() {
+    return GestureDetector(
+      onTap: _showFullCommandQueue,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+        decoration: HackerTheme.terminalBox(),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          children: [
+            _queueStat('PENDING', _queue['pending']!, HackerTheme.amber),
+            Container(width: 1, height: 30, color: HackerTheme.borderDim),
+            _queueStat('RUNNING', _queue['running']!, HackerTheme.cyan),
+            Container(width: 1, height: 30, color: HackerTheme.borderDim),
+            _queueStat('FAILED', _queue['failed']!, HackerTheme.red),
+            Container(width: 1, height: 30, color: HackerTheme.borderDim),
+            Column(children: [
+              const Icon(Icons.open_in_full, size: 16, color: HackerTheme.dimText),
+              Text('VIEW ALL', style: HackerTheme.monoNoGlow(size: 7, color: HackerTheme.dimText)),
+            ]),
+          ],
+        ),
       ),
     );
   }
@@ -396,6 +585,170 @@ class _DashboardScreenState extends State<DashboardScreen> {
       Text(label, style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText)),
     ]);
   }
+
+  void _showFullCommandQueue() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: HackerTheme.bgPanel,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(4)),
+        side: BorderSide(color: HackerTheme.borderDim),
+      ),
+      builder: (ctx) => _CommandQueueSheet(sb: _sb, onAction: _loadAll),
+    );
+  }
+
+  // ── INTERACTIVE COMMAND LIST (recent, inline) ──
+
+  Widget _buildCommandList() {
+    if (_recentCmds.isEmpty) return _emptyState('No commands');
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text('// RECENT COMMANDS', style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.dimText)),
+            const Spacer(),
+            GestureDetector(
+              onTap: _showFullCommandQueue,
+              child: Text('VIEW ALL →', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.cyan)),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        ..._recentCmds.take(8).map((cmd) => _buildInteractiveCmdRow(cmd)),
+      ],
+    );
+  }
+
+  Widget _buildInteractiveCmdRow(Map<String, dynamic> cmd) {
+    final id = cmd['id']?.toString() ?? '';
+    final status = cmd['status'] ?? '?';
+    final command = cmd['command'] ?? '?';
+    final from = cmd['from_agent'] ?? '?';
+    final to = cmd['to_agent'] ?? '?';
+    final createdAt = cmd['created_at'] as String?;
+    final payload = cmd['payload'];
+    final result = cmd['result'];
+    final isExpanded = _expandedCmds.contains(id);
+
+    final statusColor = _cmdStatusColor(status.toString());
+    final canCancel = status == 'pending' || status == 'running' || status == 'claimed';
+    final canRetry = status == 'failed' || status == 'dead_letter' || status == 'cancelled';
+
+    return GestureDetector(
+      onTap: () => setState(() {
+        if (isExpanded) { _expandedCmds.remove(id); } else { _expandedCmds.add(id); }
+      }),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 4),
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: HackerTheme.bgCard,
+          border: Border(left: BorderSide(color: statusColor, width: 2)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header row
+            Row(children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                decoration: BoxDecoration(border: Border.all(color: statusColor.withValues(alpha: 0.4))),
+                child: Text(status.toString().toUpperCase(), style: HackerTheme.monoNoGlow(size: 7, color: statusColor)),
+              ),
+              const SizedBox(width: 6),
+              Expanded(child: Text(command.toString(), style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.white))),
+              if (createdAt != null) Text(_timeAgo(DateTime.parse(createdAt)), style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.grey)),
+              const SizedBox(width: 4),
+              Icon(isExpanded ? Icons.expand_less : Icons.expand_more, size: 14, color: HackerTheme.dimText),
+            ]),
+            // Route
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text('$from → $to', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText)),
+            ),
+            // Expanded details
+            if (isExpanded) ...[
+              const Divider(color: HackerTheme.borderDim, height: 12),
+              if (payload is Map && payload.isNotEmpty) ...[
+                Text('PAYLOAD:', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText)),
+                Container(
+                  margin: const EdgeInsets.only(top: 2, bottom: 6),
+                  padding: const EdgeInsets.all(6),
+                  color: HackerTheme.bgPanel,
+                  child: Text(
+                    const JsonEncoder.withIndent('  ').convert(payload),
+                    style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.grey),
+                    maxLines: 10,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+              if (result is Map && result.isNotEmpty) ...[
+                Text('RESULT:', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText)),
+                Container(
+                  margin: const EdgeInsets.only(top: 2, bottom: 6),
+                  padding: const EdgeInsets.all(6),
+                  color: HackerTheme.bgPanel,
+                  child: Text(
+                    const JsonEncoder.withIndent('  ').convert(result),
+                    style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.grey),
+                    maxLines: 15,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+              if (cmd['claimed_at'] != null)
+                Text('Claimed: ${cmd['claimed_at']}', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText)),
+              if (cmd['completed_at'] != null)
+                Text('Completed: ${cmd['completed_at']}', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText)),
+              if (cmd['retry_count'] != null && (cmd['retry_count'] as num) > 0)
+                Text('Retries: ${cmd['retry_count']}/${cmd['max_retries'] ?? 3}', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.amber)),
+              const SizedBox(height: 6),
+              // Action buttons
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  if (canCancel) _cmdActionBtn('CANCEL', HackerTheme.red, () => _cancelCommand(id)),
+                  if (canRetry) ...[
+                    const SizedBox(width: 8),
+                    _cmdActionBtn('RETRY', HackerTheme.amber, () => _retryCommand(cmd)),
+                  ],
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _cmdActionBtn(String label, Color color, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(border: Border.all(color: color)),
+        child: Text(label, style: HackerTheme.monoNoGlow(size: 9, color: color)),
+      ),
+    );
+  }
+
+  Color _cmdStatusColor(String status) {
+    return switch (status) {
+      'done' => HackerTheme.green,
+      'running' || 'claimed' => HackerTheme.cyan,
+      'pending' => HackerTheme.amber,
+      'needs_review' => HackerTheme.amber,
+      'cancelled' => HackerTheme.grey,
+      _ => HackerTheme.red,
+    };
+  }
+
+  // ── LOCKS ──
 
   Widget _buildLockRow(Map<String, dynamic> lock) {
     return Container(
@@ -414,43 +767,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildCmdRow(Map<String, dynamic> cmd) {
-    final status = cmd['status'] ?? '?';
-    final command = cmd['command'] ?? '?';
-    final from = cmd['from_agent'] ?? '?';
-    final to = cmd['to_agent'] ?? '?';
-    final createdAt = cmd['created_at'] as String?;
-
-    final statusColor = switch (status) {
-      'done' => HackerTheme.green,
-      'running' => HackerTheme.cyan,
-      'pending' || 'needs_review' => HackerTheme.amber,
-      _ => HackerTheme.red,
-    };
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 4),
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: HackerTheme.bgCard,
-        border: Border(left: BorderSide(color: statusColor, width: 2)),
-      ),
-      child: Row(children: [
-        SizedBox(
-          width: 50,
-          child: Text(status.toString().toUpperCase(), style: HackerTheme.monoNoGlow(size: 8, color: statusColor)),
-        ),
-        Expanded(child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(command.toString(), style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.white)),
-            Text('$from → $to', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText)),
-          ],
-        )),
-        if (createdAt != null) Text(_timeAgo(DateTime.parse(createdAt)), style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.grey)),
-      ]),
-    );
-  }
+  // ── COST PANEL ──
 
   Widget _buildCostPanel() {
     return Container(
@@ -459,7 +776,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Total
           Row(
             children: [
               Text('MONTHLY TOTAL', style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.dimText)),
@@ -471,7 +787,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ],
           ),
           const Divider(color: HackerTheme.borderDim, height: 16),
-          // Per-service breakdown
           ..._costServices.map((s) {
             final name = s['name'] ?? '?';
             final cost = (s['cost'] as num?)?.toDouble() ?? 0;
@@ -480,6 +795,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             final usagePct = (s['usagePct'] as num?)?.toInt();
             final status = s['status'] ?? '';
             final note = s['note'];
+            final tier = s['tier'];
 
             final isEstimate = status == 'estimated';
             final costColor = cost == 0 ? HackerTheme.dimText : cost > 50 ? HackerTheme.amber : HackerTheme.green;
@@ -492,7 +808,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   Row(
                     children: [
                       Expanded(
-                        child: Text(name.toString(), style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.white)),
+                        child: Row(children: [
+                          Text(name.toString(), style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.white)),
+                          if (tier != null) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                              decoration: BoxDecoration(border: Border.all(color: HackerTheme.cyan.withValues(alpha: 0.3))),
+                              child: Text(tier.toString().toUpperCase(), style: HackerTheme.monoNoGlow(size: 7, color: HackerTheme.cyan)),
+                            ),
+                          ],
+                        ]),
                       ),
                       Text(
                         cost == 0 ? 'FREE' : '${isEstimate ? '~' : ''}\$$cost $currency',
@@ -534,12 +860,291 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  // ── HELPERS ──
+
   String _timeAgo(DateTime dt) {
     final diff = DateTime.now().toUtc().difference(dt.toUtc());
     if (diff.inSeconds < 60) return '${diff.inSeconds}s';
     if (diff.inMinutes < 60) return '${diff.inMinutes}m';
     if (diff.inHours < 24) return '${diff.inHours}h';
     return '${diff.inDays}d';
+  }
+
+  String _formatUptime(dynamic seconds) {
+    if (seconds is! num) return '?';
+    final h = seconds ~/ 3600;
+    final m = (seconds % 3600) ~/ 60;
+    if (h > 0) return '${h}h${m}m';
+    return '${m}m';
+  }
+}
+
+// ══════════════════════════════════════════════════
+// FULL COMMAND QUEUE — Bottom Sheet with filters
+// ══════════════════════════════════════════════════
+
+class _CommandQueueSheet extends StatefulWidget {
+  final SupabaseClient sb;
+  final VoidCallback onAction;
+  const _CommandQueueSheet({required this.sb, required this.onAction});
+
+  @override
+  State<_CommandQueueSheet> createState() => _CommandQueueSheetState();
+}
+
+class _CommandQueueSheetState extends State<_CommandQueueSheet> {
+  String _filter = 'all';
+  List<Map<String, dynamic>> _commands = [];
+  bool _loading = true;
+  final Set<String> _expanded = {};
+
+  static const _filters = ['all', 'pending', 'running', 'failed', 'done', 'cancelled'];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      var q = widget.sb.from('agent_commands').select().order('created_at', ascending: false).limit(50);
+      if (_filter == 'failed') {
+        q = widget.sb.from('agent_commands').select()
+            .inFilter('status', ['failed', 'dead_letter', 'needs_review'])
+            .order('created_at', ascending: false).limit(50);
+      } else if (_filter != 'all') {
+        q = widget.sb.from('agent_commands').select()
+            .eq('status', _filter)
+            .order('created_at', ascending: false).limit(50);
+      }
+      final data = await q;
+      if (mounted) setState(() { _commands = List<Map<String, dynamic>>.from(data); _loading = false; });
+    } catch (e) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _cancel(String id) async {
+    try {
+      await widget.sb.from('agent_commands').update({
+        'status': 'cancelled',
+        'completed_at': DateTime.now().toUtc().toIso8601String(),
+        'result': {'cancelled_by': 'naca-app'},
+      }).eq('id', id);
+      SoundService.instance.playAcknowledged();
+      widget.onAction();
+      _load();
+    } catch (_) {}
+  }
+
+  Future<void> _retry(Map<String, dynamic> cmd) async {
+    try {
+      await widget.sb.from('agent_commands').insert({
+        'from_agent': cmd['from_agent'] ?? 'naca-app',
+        'to_agent': cmd['to_agent'],
+        'command': cmd['command'],
+        'payload': cmd['payload'] ?? {},
+        'priority': cmd['priority'] ?? 5,
+      });
+      SoundService.instance.playAcknowledged();
+      widget.onAction();
+      _load();
+    } catch (_) {}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.85,
+      minChildSize: 0.4,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (ctx, scrollCtrl) => Column(
+        children: [
+          // Header
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: const BoxDecoration(
+              color: HackerTheme.bgPanel,
+              border: Border(bottom: BorderSide(color: HackerTheme.borderDim)),
+            ),
+            child: Row(
+              children: [
+                Text('COMMAND QUEUE', style: HackerTheme.mono(size: 13, color: HackerTheme.green)),
+                const Spacer(),
+                Text('${_commands.length}', style: HackerTheme.monoNoGlow(size: 11, color: HackerTheme.grey)),
+                const SizedBox(width: 12),
+                GestureDetector(
+                  onTap: () => Navigator.of(ctx).pop(),
+                  child: const Icon(Icons.close, size: 18, color: HackerTheme.dimText),
+                ),
+              ],
+            ),
+          ),
+          // Filter chips
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            color: HackerTheme.bgCard,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: _filters.map((f) {
+                  final active = _filter == f;
+                  final c = switch (f) {
+                    'pending' => HackerTheme.amber,
+                    'running' => HackerTheme.cyan,
+                    'failed' => HackerTheme.red,
+                    'done' => HackerTheme.green,
+                    'cancelled' => HackerTheme.grey,
+                    _ => HackerTheme.white,
+                  };
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: GestureDetector(
+                      onTap: () { setState(() => _filter = f); _load(); },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: active ? c.withValues(alpha: 0.15) : Colors.transparent,
+                          border: Border.all(color: active ? c : HackerTheme.borderDim),
+                        ),
+                        child: Text(f.toUpperCase(), style: HackerTheme.monoNoGlow(size: 9, color: active ? c : HackerTheme.dimText)),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+          ),
+          // Command list
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator(color: HackerTheme.green))
+                : _commands.isEmpty
+                    ? Center(child: Text('No commands', style: HackerTheme.monoNoGlow(size: 11, color: HackerTheme.dimText)))
+                    : ListView.builder(
+                        controller: scrollCtrl,
+                        padding: const EdgeInsets.all(12),
+                        itemCount: _commands.length,
+                        itemBuilder: (ctx, i) => _buildRow(_commands[i]),
+                      ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRow(Map<String, dynamic> cmd) {
+    final id = cmd['id']?.toString() ?? '';
+    final status = cmd['status'] ?? '?';
+    final command = cmd['command'] ?? '?';
+    final from = cmd['from_agent'] ?? '?';
+    final to = cmd['to_agent'] ?? '?';
+    final createdAt = cmd['created_at'] as String?;
+    final payload = cmd['payload'];
+    final result = cmd['result'];
+    final isOpen = _expanded.contains(id);
+
+    final sc = switch (status.toString()) {
+      'done' => HackerTheme.green,
+      'running' || 'claimed' => HackerTheme.cyan,
+      'pending' => HackerTheme.amber,
+      'needs_review' => HackerTheme.amber,
+      'cancelled' => HackerTheme.grey,
+      _ => HackerTheme.red,
+    };
+
+    final canCancel = status == 'pending' || status == 'running' || status == 'claimed';
+    final canRetry = status == 'failed' || status == 'dead_letter' || status == 'cancelled';
+
+    return GestureDetector(
+      onTap: () => setState(() { if (isOpen) _expanded.remove(id); else _expanded.add(id); }),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 4),
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: HackerTheme.bgCard,
+          border: Border(left: BorderSide(color: sc, width: 2)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                decoration: BoxDecoration(border: Border.all(color: sc.withValues(alpha: 0.4))),
+                child: Text(status.toString().toUpperCase(), style: HackerTheme.monoNoGlow(size: 7, color: sc)),
+              ),
+              const SizedBox(width: 6),
+              Expanded(child: Text(command.toString(), style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.white))),
+              if (createdAt != null) Text(_fmtTime(createdAt), style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.grey)),
+              Icon(isOpen ? Icons.expand_less : Icons.expand_more, size: 14, color: HackerTheme.dimText),
+            ]),
+            Text('$from → $to', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText)),
+            if (isOpen) ...[
+              const Divider(color: HackerTheme.borderDim, height: 10),
+              if (payload is Map && payload.isNotEmpty)
+                _jsonBlock('PAYLOAD', payload),
+              if (result is Map && result.isNotEmpty)
+                _jsonBlock('RESULT', result),
+              if (cmd['retry_count'] != null && (cmd['retry_count'] as num) > 0)
+                Text('Retries: ${cmd['retry_count']}/${cmd['max_retries'] ?? 3}', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.amber)),
+              const SizedBox(height: 6),
+              Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                if (canCancel) _actionBtn('CANCEL', HackerTheme.red, () => _cancel(id)),
+                if (canRetry) ...[
+                  const SizedBox(width: 8),
+                  _actionBtn('RETRY', HackerTheme.amber, () => _retry(cmd)),
+                ],
+              ]),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _jsonBlock(String label, dynamic data) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text('$label:', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText)),
+      Container(
+        margin: const EdgeInsets.only(top: 2, bottom: 6),
+        padding: const EdgeInsets.all(6),
+        color: HackerTheme.bgPanel,
+        child: Text(
+          const JsonEncoder.withIndent('  ').convert(data),
+          style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.grey),
+          maxLines: 12,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+    ]);
+  }
+
+  Widget _actionBtn(String label, Color color, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(border: Border.all(color: color)),
+        child: Text(label, style: HackerTheme.monoNoGlow(size: 9, color: color)),
+      ),
+    );
+  }
+
+  String _fmtTime(String iso) {
+    try {
+      final dt = DateTime.parse(iso);
+      final diff = DateTime.now().toUtc().difference(dt.toUtc());
+      if (diff.inSeconds < 60) return '${diff.inSeconds}s';
+      if (diff.inMinutes < 60) return '${diff.inMinutes}m';
+      if (diff.inHours < 24) return '${diff.inHours}h';
+      return '${diff.inDays}d';
+    } catch (_) {
+      return '';
+    }
   }
 }
 
