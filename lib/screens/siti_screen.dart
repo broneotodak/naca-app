@@ -368,7 +368,8 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
         _capCard('OpenAI GPT-4o', 'Fallback LLM with tools', HackerTheme.amber),
         _capCard('Whisper STT', 'Voice note transcription (lang: ms)', HackerTheme.green),
         _capCard('Gemini/OpenAI Vision', 'Image analysis with fallback', HackerTheme.green),
-        _capCard('ElevenLabs AFIFAH', 'TTS voice (eleven_flash_v2_5)', HackerTheme.cyan),
+        _capCard('ElevenLabs AFIFAH', 'TTS voice (eleven_flash_v2_5) + Interactive AI calls', HackerTheme.cyan),
+        _capCard('Telnyx + Twilio', 'Outbound calls (MY +60360431442, US +17072160581)', HackerTheme.cyan),
         _capCard('DALL-E 3', 'Image generation', HackerTheme.amber),
         const SizedBox(height: 16),
 
@@ -384,7 +385,7 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
         _capCard('9. generate_image', 'DALL-E 3 → WhatsApp image', HackerTheme.amber),
         _capCard('10. save_face', 'InsightFace embedding → neo-brain', HackerTheme.amber),
         _capCard('11. recognize_faces', 'Detect + match faces in photos', HackerTheme.amber),
-        _capCard('12. make_call', 'Telnyx outbound call + ElevenLabs TTS voice (owner only)', HackerTheme.red),
+        _capCard('12. make_call', 'ElevenLabs AI call (MY +60360431442) + Telnyx TTS backup (owner only)', HackerTheme.red),
         _capCard('13. check_agent_status', 'Query NACA agent fleet + command queue', HackerTheme.green),
         _capCard('14. web_search', 'DuckDuckGo HTML scraping', HackerTheme.grey),
         _capCard('15. search_conversations', 'Cross-chat history lookup', HackerTheme.grey),
