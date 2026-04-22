@@ -210,6 +210,26 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // =============================================
+  // SITI PROXY — forward to localhost:3800 (same VPS, no CORS issue)
+  // =============================================
+  if (urlPath.startsWith('/api/siti/')) {
+    const sitiPath = urlPath.replace('/api/siti', '');
+    const sitiPin = process.env.SITI_PIN || '404282';
+    const sitiUrl = `http://localhost:3800${sitiPath}`;
+    const proxyReq = http.get(sitiUrl, { timeout: 8000, headers: { 'x-pin': sitiPin } }, (proxyRes) => {
+      let body = '';
+      proxyRes.on('data', c => body += c);
+      proxyRes.on('end', () => {
+        res.writeHead(proxyRes.statusCode || 200, { 'Content-Type': 'application/json' });
+        res.end(body);
+      });
+    });
+    proxyReq.on('error', (err) => json(res, { error: `Siti unreachable: ${err.message}` }, 502));
+    proxyReq.end();
+    return;
+  }
+
   json(res, { error: 'not found' }, 404);
 });
 

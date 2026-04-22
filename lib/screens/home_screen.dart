@@ -12,6 +12,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../theme.dart';
 import '../services/api_service.dart';
 import '../services/ws_service.dart';
+import '../services/sound_service.dart';
 import '../widgets/scanline_overlay.dart';
 import '../widgets/terminal_card.dart';
 
@@ -186,7 +187,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       setState(() {
         pane.timestamps[pane.events.length] = DateTime.now();
         pane.events.add(event);
-        if (type == 'assistant_text') pane.isProcessing = false;
+        if (type == 'assistant_text') {
+          pane.isProcessing = false;
+          SoundService.instance.playConstructionComplete();
+        }
       });
     }
     if (pane.autoScroll) _scrollPaneToBottom(pane);
@@ -211,7 +215,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   Future<void> _createSession() async {
     final nameCtl = TextEditingController();
-    final dirCtl = TextEditingController(text: '/home/lanccc');
+    final dirCtl = TextEditingController(text: '/home/openclaw');
     final result = await showDialog<Map<String, String>>(
       context: context,
       builder: (ctx) => Dialog(
@@ -270,6 +274,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   Future<void> _startSession(String id) async {
     try {
+      SoundService.instance.playUnitReady();
       await ApiService.startSession(id);
       await _loadSessions();
       _selectSessionForPane(id, _focusedPane);
@@ -460,6 +465,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       finalPrompt = 'I have attached ${pane.attachments.length} image(s) at: $paths\n\nPlease read and analyze the image(s) first, then respond to my message:\n\n$text';
     }
 
+    SoundService.instance.playAcknowledged();
     _ws.sendPrompt(pane.sessionId!, finalPrompt);
     pane.promptController.clear();
     pane.promptFocus.requestFocus();
@@ -613,9 +619,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       child: Row(children: [
         if (mobile) InkWell(onTap: () => setState(() => _sidebarOpen = !_sidebarOpen),
           child: Padding(padding: const EdgeInsets.only(right: 10), child: Text('[\u2630]', style: HackerTheme.mono(size: 16)))),
-        Text('CCC', style: HackerTheme.mono(size: 13)),
+        Text('NACA', style: HackerTheme.mono(size: 13)),
         const SizedBox(width: 4),
-        Text('v1.0', style: HackerTheme.mono(size: 8, color: HackerTheme.dimText)),
+        Text('terminal', style: HackerTheme.mono(size: 8, color: HackerTheme.dimText)),
         const SizedBox(width: 6),
         Text('///', style: HackerTheme.mono(size: 10, color: HackerTheme.borderDim)),
         const SizedBox(width: 6),
@@ -817,7 +823,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 ),
             ]),
             Row(children: [
-              Expanded(child: Text(session['project_dir'] ?? '/home/lanccc', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.dimText), overflow: TextOverflow.ellipsis)),
+              Expanded(child: Text(session['project_dir'] ?? '/home/openclaw', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.dimText), overflow: TextOverflow.ellipsis)),
               if (turns > 0) Text('$turns turns', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText)),
             ]),
           ])),
@@ -1082,13 +1088,13 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 _handlePaste(paneIdx);
               }
             },
-            child: TextField(controller: pane.promptController, focusNode: pane.promptFocus, enabled: canSend,
-              style: HackerTheme.monoNoGlow(size: compact ? 11 : 14, color: HackerTheme.green), cursorColor: HackerTheme.green,
+            child: TextField(controller: pane.promptController, focusNode: pane.promptFocus,
+              style: HackerTheme.monoNoGlow(size: compact ? 11 : 14, color: canSend ? HackerTheme.green : HackerTheme.dimText), cursorColor: HackerTheme.green,
               decoration: InputDecoration(
                 hintText: pane.isProcessing ? 'WAITING...' : pane.sessionId == null ? 'SELECT SESSION...' : !isRunning ? 'START FIRST...' : 'ENTER COMMAND...',
                 hintStyle: HackerTheme.monoNoGlow(color: pane.isProcessing ? HackerTheme.amber : HackerTheme.dimText, size: compact ? 11 : 14),
                 border: InputBorder.none, contentPadding: EdgeInsets.zero),
-              onSubmitted: (_) => _sendPromptForPane(paneIdx)))),
+              onSubmitted: canSend ? (_) => _sendPromptForPane(paneIdx) : null))),
           const SizedBox(width: 4),
           InkWell(onTap: canSend ? () => _sendPromptForPane(paneIdx) : null,
             child: Container(padding: EdgeInsets.symmetric(horizontal: compact ? 8 : 16, vertical: compact ? 4 : 8),

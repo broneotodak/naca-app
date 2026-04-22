@@ -1,11 +1,11 @@
 {
-    "name": "lan_ccc",
-    "short_name": "lan_ccc",
+    "name": "NACA — Neo Agentic Centre",
+    "short_name": "NACA",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#050505",
+    "theme_color": "#00FF41",
+    "description": "Ultimate Agentic Centre — Agent fleet, Siti WhatsApp, Terminal, Memory",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

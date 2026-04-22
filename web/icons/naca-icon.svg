@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background: dark military -->
+  <rect width="512" height="512" rx="64" fill="#050505"/>
+
+  <!-- Outer ring (C&C style) -->
+  <circle cx="256" cy="256" r="220" fill="none" stroke="#00FF41" stroke-width="4" opacity="0.3"/>
+  <circle cx="256" cy="256" r="200" fill="none" stroke="#00FF41" stroke-width="2" opacity="0.5"/>
+
+  <!-- Inner hexagon frame -->
+  <polygon points="256,76 411,146 411,366 256,436 101,366 101,146" fill="none" stroke="#00FF41" stroke-width="3" opacity="0.6"/>
+
+  <!-- Radar/scope lines -->
+  <line x1="256" y1="76" x2="256" y2="436" stroke="#00FF41" stroke-width="1" opacity="0.2"/>
+  <line x1="101" y1="256" x2="411" y2="256" stroke="#00FF41" stroke-width="1" opacity="0.2"/>
+  <line x1="140" y1="140" x2="372" y2="372" stroke="#00FF41" stroke-width="1" opacity="0.15"/>
+  <line x1="372" y1="140" x2="140" y2="372" stroke="#00FF41" stroke-width="1" opacity="0.15"/>
+
+  <!-- Center radar circle -->
+  <circle cx="256" cy="256" r="60" fill="none" stroke="#00FF41" stroke-width="2" opacity="0.4"/>
+  <circle cx="256" cy="256" r="30" fill="none" stroke="#00FF41" stroke-width="1" opacity="0.3"/>
+
+  <!-- Eagle/bird silhouette (stylized) -->
+  <path d="M256,160 L200,220 L160,200 L190,250 L150,280 L210,270 L240,320 L256,280 L272,320 L302,270 L362,280 L322,250 L352,200 L312,220 L256,160Z" fill="#00FF41" opacity="0.8"/>
+
+  <!-- NACA text -->
+  <text x="256" y="400" font-family="monospace" font-size="48" font-weight="bold" fill="#00FF41" text-anchor="middle" letter-spacing="8">NACA</text>
+
+  <!-- Glow effect on eagle -->
+  <path d="M256,160 L200,220 L160,200 L190,250 L150,280 L210,270 L240,320 L256,280 L272,320 L302,270 L362,280 L322,250 L352,200 L312,220 L256,160Z" fill="none" stroke="#00FF41" stroke-width="1" opacity="0.4"/>
+
+  <!-- Corner brackets (HUD style) -->
+  <path d="M40,100 L40,40 L100,40" fill="none" stroke="#00FF41" stroke-width="3" opacity="0.5"/>
+  <path d="M412,40 L472,40 L472,100" fill="none" stroke="#00FF41" stroke-width="3" opacity="0.5"/>
+  <path d="M472,412 L472,472 L412,472" fill="none" stroke="#00FF41" stroke-width="3" opacity="0.5"/>
+  <path d="M100,472 L40,472 L40,412" fill="none" stroke="#00FF41" stroke-width="3" opacity="0.5"/>
+
+  <!-- Status dots (agents) -->
+  <circle cx="130" cy="130" r="6" fill="#00FF41" opacity="0.8"/>
+  <circle cx="382" cy="130" r="6" fill="#00D4FF" opacity="0.8"/>
+  <circle cx="130" cy="382" r="6" fill="#FFB700" opacity="0.8"/>
+  <circle cx="382" cy="382" r="6" fill="#00FF41" opacity="0.8"/>
+</svg>

@@ -13,17 +13,20 @@ class WsService {
   Timer? _reconnectTimer;
   Timer? _pingTimer;
   final Set<String> _subscribedSessionIds = {};
+  bool _disposed = false;
 
   Stream<Map<String, dynamic>> get events => _eventController.stream;
   Stream<WsState> get stateStream => _stateController.stream;
   WsState get state => _state;
 
   void _setState(WsState s) {
+    if (_disposed) return;
     _state = s;
     _stateController.add(s);
   }
 
   void connect() {
+    if (_disposed) return;
     _reconnectTimer?.cancel();
     _pingTimer?.cancel();
     _channel?.sink.close();
@@ -57,12 +60,14 @@ class WsService {
       },
       onDone: () {
         _pingTimer?.cancel();
+        if (_disposed) return;
         _setState(WsState.disconnected);
         _eventController.add({'type': 'ws_disconnected'});
         _scheduleReconnect();
       },
       onError: (e) {
         _pingTimer?.cancel();
+        if (_disposed) return;
         _setState(WsState.disconnected);
         _scheduleReconnect();
       },
@@ -118,11 +123,13 @@ class WsService {
   }
 
   void _scheduleReconnect() {
+    if (_disposed) return;
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(const Duration(seconds: 3), connect);
   }
 
   void dispose() {
+    _disposed = true;
     _reconnectTimer?.cancel();
     _pingTimer?.cancel();
     _channel?.sink.close();

@@ -28,7 +28,7 @@ class SessionManager extends EventEmitter {
   create(name, projectDir) {
     const id = uuidv4();
     db.prepare('INSERT INTO sessions (id, name, project_dir, status) VALUES (?, ?, ?, ?)')
-      .run(id, name, projectDir || '/home/lanccc', 'idle');
+      .run(id, name, projectDir || '/home/openclaw', 'idle');
     return { id, name, projectDir };
   }
 
@@ -41,7 +41,7 @@ class SessionManager extends EventEmitter {
       status: 'active',
       buffer: [],
       activeProcess: null,
-      projectDir: session.project_dir || '/home/lanccc',
+      projectDir: session.project_dir || '/home/openclaw',
       promptCount: 0,
       lastActivity: Date.now()
     };
@@ -83,8 +83,8 @@ class SessionManager extends EventEmitter {
 
     console.log(`[CLAUDE] Starting process for ${id.substring(0, 8)}, resume: ${session.claudeSessionId ? 'yes' : 'no'}`);
 
-    const proc = spawn('su', ['-', 'lanccc', '-c', claudeCmd], {
-      env: { ...process.env, HOME: '/home/lanccc' },
+    const proc = spawn('bash', ['-c', claudeCmd], {
+      env: { ...process.env, HOME: '/home/openclaw' },
       stdio: ['pipe', 'pipe', 'pipe']
     });
 
@@ -276,8 +276,13 @@ class SessionManager extends EventEmitter {
   getBuffer(id) {
     const session = this.sessions.get(id);
     if (session?.buffer?.length > 0) return session.buffer;
-    // Fallback: reconstruct from SQLite
-    return this._reconstructFromDb(id);
+    // Always try DB reconstruction — covers PM2 restarts and idle sessions
+    const dbEvents = this._reconstructFromDb(id);
+    // Populate the in-memory buffer if session exists
+    if (session && dbEvents.length > 0) {
+      session.buffer = dbEvents;
+    }
+    return dbEvents;
   }
 
   _reconstructFromDb(id) {
