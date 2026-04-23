@@ -524,8 +524,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _ => HackerTheme.dimText,
     };
 
+    final isToolRequest = source.toString() == 'siti_capability_gap';
     final statusIcon = switch (status.toString()) {
-      'pending' => Icons.hourglass_empty,
+      'pending' => isToolRequest ? Icons.build_circle_outlined : Icons.hourglass_empty,
       'decomposing' => Icons.psychology,
       'decomposed' => Icons.check_circle_outline,
       'failed' => Icons.error_outline,
@@ -558,7 +559,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 child: Text(status.toString().toUpperCase(), style: HackerTheme.monoNoGlow(size: 7, color: statusColor)),
               ),
               const SizedBox(width: 6),
-              if (source.toString().isNotEmpty)
+              if (isToolRequest) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                  decoration: BoxDecoration(border: Border.all(color: HackerTheme.red.withValues(alpha: 0.5))),
+                  child: Text('TOOL REQUEST', style: HackerTheme.monoNoGlow(size: 6, color: HackerTheme.red)),
+                ),
+                const SizedBox(width: 4),
+              ] else if (source.toString().isNotEmpty)
                 Text(source.toString(), style: HackerTheme.monoNoGlow(size: 7, color: HackerTheme.dimText)),
               const Spacer(),
               if (createdAt != null) Text(_timeAgo(DateTime.parse(createdAt)), style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.grey)),
