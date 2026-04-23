@@ -390,7 +390,7 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
         _capCard('DALL-E 3', 'Image generation', HackerTheme.amber),
         const SizedBox(height: 16),
 
-        _section('16 TOOLS'),
+        _section('17 TOOLS'),
         _capCard('1. search_twin_memory', 'Search neo-brain memories (vector)', HackerTheme.green),
         _capCard('2. save_twin_memory', 'Write to neo-brain (owner/admin only)', HackerTheme.green),
         _capCard('3. update_contact', 'Change permission/persona/reply_mode', HackerTheme.cyan),
@@ -406,7 +406,8 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
         _capCard('13. check_agent_status', 'Query NACA agent fleet + command queue', HackerTheme.green),
         _capCard('14. web_search', 'DuckDuckGo HTML scraping', HackerTheme.grey),
         _capCard('15. search_conversations', 'Cross-chat history lookup', HackerTheme.grey),
-        _capCard('16. sync_whatsapp_contacts', 'Refresh contacts from WhatsApp', HackerTheme.grey),
+        _capCard('16. search_forex_signals', 'Query forex signals from contacts (Intan etc)', HackerTheme.amber),
+        _capCard('17. sync_whatsapp_contacts', 'Refresh contacts from WhatsApp', HackerTheme.grey),
       ],
     );
   }

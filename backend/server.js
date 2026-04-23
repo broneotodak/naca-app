@@ -282,21 +282,23 @@ const server = http.createServer(async (req, res) => {
       costs.services.push({ name: 'Claude API (Anthropic)', cost: 50, currency: 'usd', usage: 'Estimate', status: 'estimated' });
     }
 
-    // Gemini — Tier 2 (pay-per-use)
-    costs.services.push({ name: 'Gemini (Google)', cost: 15, currency: 'usd', tier: 'tier-2', usage: 'Pay-per-use (Siti primary LLM)', status: 'estimated', note: 'Flash 2.5 ~$0.075/1M input, ~$0.30/1M output' });
+    // Gemini — Ultra plan (Google AI Studio subscription)
+    costs.services.push({ name: 'Gemini (Google)', cost: 190, currency: 'myr', tier: 'ultra', usage: 'AI Studio Ultra plan (~RM190/mo) + pay-per-use API', status: 'active', note: 'Siti primary LLM (Flash 2.5 Tier 2)' });
 
-    // Twilio — MY number + usage
-    costs.services.push({ name: 'Twilio', cost: 15, currency: 'usd', usage: 'MY number +60360431442 ($3/mo) + per-min calls', status: 'estimated', note: 'ElevenLabs interactive calls route through Twilio' });
+    // Twilio — annual plan divided monthly
+    costs.services.push({ name: 'Twilio', cost: 8, currency: 'usd', usage: 'MY +60360431442 + per-min calls (~$100/yr ÷ 12)', status: 'estimated' });
 
-    // Telnyx — US number + usage
-    costs.services.push({ name: 'Telnyx', cost: 5, currency: 'usd', usage: 'US number +17072160581 ($1/mo) + TTS backup calls', status: 'estimated' });
+    // Telnyx — annual plan divided monthly
+    costs.services.push({ name: 'Telnyx', cost: 1.25, currency: 'usd', usage: 'US +17072160581 (~$15/yr ÷ 12) + TTS backup', status: 'estimated' });
 
     // Netlify — paid plan
     costs.services.push({ name: 'Netlify', cost: 19, currency: 'usd', tier: 'pro', usage: 'Academy, ClaudeN, Presentation deploys', status: 'active' });
 
-    // Total
+    // Total (convert all to USD: EUR*1.08, MYR/4.5)
     costs.totalEstimate = costs.services.reduce((sum, s) => {
-      const usd = s.currency === 'eur' ? s.cost * 1.08 : s.cost;
+      let usd = s.cost;
+      if (s.currency === 'eur') usd = s.cost * 1.08;
+      else if (s.currency === 'myr') usd = s.cost / 4.5;
       return sum + usd;
     }, 0);
     costs.totalCurrency = 'usd';
