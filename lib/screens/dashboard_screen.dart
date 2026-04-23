@@ -432,6 +432,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         if (_agents.isEmpty) _emptyState('No agents reporting'),
         const SizedBox(height: 16),
 
+        // Tools Arsenal
+        _section('TOOLS ARSENAL'),
+        _buildToolsArsenal(),
+        const SizedBox(height: 16),
+
         // Command queue with filter
         _section('COMMAND QUEUE'),
         _buildQueueBar(),
@@ -464,42 +469,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   );
 
   // ── INTENT BUTTON ──
-
-  Widget _buildIntentButton() {
-    return GestureDetector(
-      onTap: _showIntentDialog,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
-        decoration: BoxDecoration(
-          color: HackerTheme.bgCard,
-          border: Border.all(color: HackerTheme.green, width: 1),
-          boxShadow: [const BoxShadow(color: HackerTheme.greenDim, blurRadius: 12)],
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                border: Border.all(color: HackerTheme.green.withValues(alpha: 0.5)),
-              ),
-              child: const Icon(Icons.bolt, size: 18, color: HackerTheme.green),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('DISPATCH INTENT', style: HackerTheme.mono(size: 12, color: HackerTheme.green)),
-                  Text('Tell the agents what to do — planner decomposes it', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText)),
-                ],
-              ),
-            ),
-            const Icon(Icons.arrow_forward, size: 16, color: HackerTheme.green),
-          ],
-        ),
-      ),
-    );
-  }
 
   // ── INTENT CARDS ──
 
@@ -1052,6 +1021,94 @@ class _DashboardScreenState extends State<DashboardScreen> {
     };
   }
 
+  // ── TOOLS ARSENAL ──
+
+  Widget _buildToolsArsenal() {
+    const tools = [
+      _ToolDef('search_twin_memory', 'Search neo-brain memories', 'memory', Icons.search),
+      _ToolDef('save_twin_memory', 'Write to neo-brain', 'memory', Icons.save),
+      _ToolDef('update_contact', 'Change permission/persona', 'contacts', Icons.person_outline),
+      _ToolDef('get_contact_status', 'Lookup contact info', 'contacts', Icons.badge_outlined),
+      _ToolDef('search_person', 'Find known persons', 'identity', Icons.person_search),
+      _ToolDef('list_known_persons', 'List all identities', 'identity', Icons.people_outline),
+      _ToolDef('send_whatsapp', 'Send text message', 'messaging', Icons.chat),
+      _ToolDef('send_voice_note', 'ElevenLabs TTS → WhatsApp', 'messaging', Icons.mic),
+      _ToolDef('generate_image', 'DALL-E 3 image gen', 'media', Icons.image),
+      _ToolDef('save_face', 'Store face embedding', 'vision', Icons.face),
+      _ToolDef('recognize_faces', 'Identify faces in photos', 'vision', Icons.face_retouching_natural),
+      _ToolDef('make_call', 'AI call (MY +60360431442)', 'calls', Icons.phone),
+      _ToolDef('check_agent_status', 'Query agent fleet', 'system', Icons.monitor_heart),
+      _ToolDef('web_search', 'DuckDuckGo search', 'search', Icons.language),
+      _ToolDef('search_conversations', 'Chat history lookup', 'search', Icons.history),
+      _ToolDef('search_forex_signals', 'Forex signal tracker', 'finance', Icons.candlestick_chart),
+      _ToolDef('sync_whatsapp_contacts', 'Refresh WA contacts', 'contacts', Icons.sync),
+    ];
+
+    final categories = <String, List<_ToolDef>>{};
+    for (final t in tools) {
+      categories.putIfAbsent(t.category, () => []).add(t);
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: HackerTheme.terminalBox(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.build_circle, size: 16, color: HackerTheme.green),
+              const SizedBox(width: 8),
+              Text('${tools.length} TOOLS', style: HackerTheme.mono(size: 12, color: HackerTheme.green)),
+              const Spacer(),
+              Text('SITI AI CAPABILITIES', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText)),
+            ],
+          ),
+          const Divider(color: HackerTheme.borderDim, height: 12),
+          ...categories.entries.map((entry) {
+            final catColor = switch (entry.key) {
+              'memory' => HackerTheme.green,
+              'messaging' || 'calls' => HackerTheme.cyan,
+              'contacts' || 'identity' => HackerTheme.amber,
+              'media' || 'vision' => HackerTheme.red,
+              'system' || 'search' => HackerTheme.grey,
+              'finance' => HackerTheme.amber,
+              _ => HackerTheme.dimText,
+            };
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(entry.key.toUpperCase(), style: HackerTheme.monoNoGlow(size: 7, color: catColor)),
+                  const SizedBox(height: 3),
+                  Wrap(
+                    spacing: 4, runSpacing: 4,
+                    children: entry.value.map((t) => Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: HackerTheme.bgPanel,
+                        border: Border.all(color: catColor.withValues(alpha: 0.3)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(t.icon, size: 10, color: catColor),
+                          const SizedBox(width: 4),
+                          Text(t.name, style: HackerTheme.monoNoGlow(size: 8, color: catColor)),
+                        ],
+                      ),
+                    )).toList(),
+                  ),
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
   // ── LOCKS ──
 
   Widget _buildLockRow(Map<String, dynamic> lock) {
@@ -1456,4 +1513,12 @@ class _ServiceStatus {
   final bool ok;
   final String detail;
   const _ServiceStatus(this.ok, this.detail);
+}
+
+class _ToolDef {
+  final String name;
+  final String desc;
+  final String category;
+  final IconData icon;
+  const _ToolDef(this.name, this.desc, this.category, this.icon);
 }
