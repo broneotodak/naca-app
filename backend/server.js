@@ -426,6 +426,32 @@ wss.on('connection', (ws, req) => {
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`[CCC] Server on port ${PORT}`);
   console.log(`[CCC] Auth: ${AUTH_TOKEN.slice(0, 15)}...`);
+
+  // Heartbeat: register naca-backend in neo-brain every 60s
+  if (supabase) {
+    const doHeartbeat = async () => {
+      try {
+        await supabase.from('agent_heartbeats').upsert({
+          agent_name: 'naca-backend',
+          status: 'ok',
+          meta: {
+            version: 'naca-backend-v1',
+            port: PORT,
+            sessions: sm.list().length,
+            ws_clients: wss.clients.size,
+            memory_mb: Math.round(process.memoryUsage().rss / 1024 / 1024),
+            uptime_sec: Math.round(process.uptime()),
+          },
+          reported_at: new Date().toISOString(),
+        }, { onConflict: 'agent_name' });
+      } catch (e) {
+        console.error('[NACA] Heartbeat failed:', e.message);
+      }
+    };
+    doHeartbeat();
+    setInterval(doHeartbeat, 60_000);
+    console.log('[NACA] Heartbeat ticker started (every 60s)');
+  }
 });
 
 function json(res, data, code = 200) {
