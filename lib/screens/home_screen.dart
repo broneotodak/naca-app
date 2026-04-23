@@ -154,8 +154,15 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     final pane = sessionId != null ? _paneForSession(sessionId) : null;
 
     if (type == 'status' && pane != null) {
+      final wasProcessing = pane.isProcessing;
       setState(() => pane.isProcessing = event['content'] == 'processing');
-      if (event['content'] == 'ready') _loadSessions();
+      if (event['content'] == 'processing' && !wasProcessing) {
+        SoundService.instance.playBuilding();
+      }
+      if (event['content'] == 'ready') {
+        if (wasProcessing) SoundService.instance.playMissionAccomplished();
+        _loadSessions();
+      }
       return;
     }
 
@@ -189,7 +196,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         pane.events.add(event);
         if (type == 'assistant_text') {
           pane.isProcessing = false;
-          SoundService.instance.playConstructionComplete();
+        }
+        if (type == 'tool_call') {
+          SoundService.instance.playIncomingTransmission();
+        }
+        if (type == 'error') {
+          SoundService.instance.playMissionFailed();
         }
       });
     }
