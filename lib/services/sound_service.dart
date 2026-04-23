@@ -62,8 +62,8 @@ class SoundService {
   /// Message sent
   void playSent() => _playFile('Upgrade_inprogress');
 
-  /// Navigation click
-  void playClick() => _playFile('Button_click');
+  /// Navigation click (synth — instant, no loading latency)
+  void playClick() => _playSynth();
 
   void _playFile(String name) {
     if (!enabled || !kIsWeb) return;
