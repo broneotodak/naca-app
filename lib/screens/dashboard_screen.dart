@@ -1080,7 +1080,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(entry.key.toUpperCase(), style: HackerTheme.monoNoGlow(size: 7, color: catColor)),
+                  Text(entry.key.toUpperCase(), style: HackerTheme.monoNoGlow(size: 10, color: catColor)),
                   const SizedBox(height: 3),
                   Wrap(
                     spacing: 4, runSpacing: 4,
@@ -1093,9 +1093,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(t.icon, size: 10, color: catColor),
-                          const SizedBox(width: 4),
-                          Text(t.name, style: HackerTheme.monoNoGlow(size: 8, color: catColor)),
+                          Icon(t.icon, size: 14, color: catColor),
+                          const SizedBox(width: 6),
+                          Text(t.name, style: HackerTheme.monoNoGlow(size: 11, color: catColor)),
                         ],
                       ),
                     )).toList(),
