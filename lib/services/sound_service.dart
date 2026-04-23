@@ -36,13 +36,13 @@ class SoundService {
   // === Voice Lines (Seva/Aeva/Ieva WAV) ===
 
   /// Terminal starts processing — Seva "Building"
-  void playSevaBuilding() => _playFile('Seva_Building', isWav: true);
+  void playSevaBuilding() => _playFile('Seva_Building', ext: 'm4a');
 
   /// Terminal finishes — Aeva "Construction Complete"
-  void playAevaComplete() => _playFile('Aeva_ConComplete', isWav: true);
+  void playAevaComplete() => _playFile('Aeva_ConComplete', ext: 'm4a');
 
   /// Session/tab selected — Ieva "Resuming"
-  void playIevaResuming() => _playFile('Ieva_Resuming', isWav: true);
+  void playIevaResuming() => _playFile('Ieva_Resuming', ext: 'm4a');
 
   // === Synth Sounds ===
 
@@ -81,9 +81,8 @@ class SoundService {
   /// Message sent
   void playSent() => _playFile('Upgrade_inprogress');
 
-  void _playFile(String name, {bool isWav = false}) {
+  void _playFile(String name, {String ext = 'mp3'}) {
     if (!enabled || !kIsWeb) return;
-    final ext = isWav ? 'wav' : 'mp3';
     try {
       _jsEval('(function(){var a=new Audio("sounds/${name}.${ext}");a.volume=0.4;a.play().catch(function(){})})()'.toJS);
     } catch (e) {
