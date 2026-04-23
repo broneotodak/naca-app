@@ -157,10 +157,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       final wasProcessing = pane.isProcessing;
       setState(() => pane.isProcessing = event['content'] == 'processing');
       if (event['content'] == 'processing' && !wasProcessing) {
-        SoundService.instance.playBuilding();
+        SoundService.instance.playSevaBuilding();
       }
       if (event['content'] == 'ready') {
-        if (wasProcessing) SoundService.instance.playMissionAccomplished();
+        if (wasProcessing) SoundService.instance.playAevaComplete();
         _loadSessions();
       }
       return;
@@ -283,7 +283,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   Future<void> _startSession(String id) async {
     try {
-      SoundService.instance.playUnitReady();
+      SoundService.instance.playIevaResuming();
       await ApiService.startSession(id);
       await _loadSessions();
       _selectSessionForPane(id, _focusedPane);
