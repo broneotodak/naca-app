@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../config.dart';
 import '../theme.dart';
 
 /// Memory viewer — browse neo-brain memories, people, facts, personality
@@ -363,6 +365,26 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
                           ],
                         ]),
                       ],
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: () {
+                      Navigator.of(ctx).pop();
+                      _showEditPersonDialog(person);
+                    },
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 6),
+                      child: Icon(Icons.edit_outlined, size: 18, color: HackerTheme.green),
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: () {
+                      Navigator.of(ctx).pop();
+                      _confirmDeletePerson(person);
+                    },
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 6),
+                      child: Icon(Icons.delete_outline, size: 18, color: HackerTheme.red),
                     ),
                   ),
                   GestureDetector(
@@ -768,4 +790,243 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
     if (diff.inHours < 24) return '${diff.inHours}h';
     return '${diff.inDays}d';
   }
+
+  // ══════════════════════════════════════════════════
+  // EDIT PERSON — Form dialog → PATCH /api/siti/api/people/:id
+  // ══════════════════════════════════════════════════
+
+  void _showEditPersonDialog(Map<String, dynamic> person) {
+    final id = person['id'] as String?;
+    if (id == null) return;
+
+    final displayCtrl = TextEditingController(text: (person['display_name'] ?? '').toString());
+    final pushCtrl = TextEditingController(text: (person['push_name'] ?? '').toString());
+    final relCtrl = TextEditingController(text: (person['relationship'] ?? '').toString());
+    final bioCtrl = TextEditingController(text: (person['bio'] ?? '').toString());
+    final nicksCtrl = TextEditingController(text: _csv(person['nicknames']));
+    final langsCtrl = TextEditingController(text: _csv(person['languages']));
+    final factsCtrl = TextEditingController(text: _multiline(person['facts']));
+    final traitsCtrl = TextEditingController(text: _multiline(person['traits']));
+
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.75),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          bool saving = false;
+          String? errMsg;
+          return Dialog(
+            backgroundColor: HackerTheme.bgPanel,
+            shape: const RoundedRectangleBorder(side: BorderSide(color: HackerTheme.green)),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560, maxHeight: 720),
+              child: StatefulBuilder(
+                builder: (ctx2, setLocal) => Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Header
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: HackerTheme.borderDim))),
+                      child: Row(children: [
+                        Text('EDIT IDENTITY', style: HackerTheme.mono(size: 13, color: HackerTheme.green)),
+                        const Spacer(),
+                        GestureDetector(
+                          onTap: () => Navigator.of(ctx).pop(),
+                          child: const Icon(Icons.close, size: 18, color: HackerTheme.dimText),
+                        ),
+                      ]),
+                    ),
+                    // Body
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(14),
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                          _fieldLabel('display_name'),
+                          _textField(displayCtrl),
+                          _fieldLabel('push_name'),
+                          _textField(pushCtrl),
+                          _fieldLabel('relationship'),
+                          _textField(relCtrl, hint: 'e.g. sister, colleague, client'),
+                          _fieldLabel('bio'),
+                          _textField(bioCtrl, maxLines: 2),
+                          _fieldLabel('nicknames (comma-separated)'),
+                          _textField(nicksCtrl),
+                          _fieldLabel('languages (comma-separated)'),
+                          _textField(langsCtrl),
+                          _fieldLabel('facts (one per line)'),
+                          _textField(factsCtrl, maxLines: 4),
+                          _fieldLabel('traits (one per line)'),
+                          _textField(traitsCtrl, maxLines: 3),
+                          if (errMsg != null) Padding(
+                            padding: const EdgeInsets.only(top: 10),
+                            child: Text('// $errMsg', style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.red)),
+                          ),
+                        ]),
+                      ),
+                    ),
+                    // Footer
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      decoration: const BoxDecoration(border: Border(top: BorderSide(color: HackerTheme.borderDim))),
+                      child: Row(children: [
+                        if (saving) const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: HackerTheme.green)),
+                        const Spacer(),
+                        TextButton(
+                          onPressed: saving ? null : () => Navigator.of(ctx).pop(),
+                          child: Text('CANCEL', style: HackerTheme.mono(size: 11, color: HackerTheme.dimText)),
+                        ),
+                        const SizedBox(width: 8),
+                        OutlinedButton(
+                          style: OutlinedButton.styleFrom(side: const BorderSide(color: HackerTheme.green)),
+                          onPressed: saving ? null : () async {
+                            setLocal(() { saving = true; errMsg = null; });
+                            final body = {
+                              'display_name': displayCtrl.text.trim(),
+                              'push_name': pushCtrl.text.trim(),
+                              'relationship': relCtrl.text.trim(),
+                              'bio': bioCtrl.text.trim(),
+                              'replace_nicknames': _splitCsv(nicksCtrl.text),
+                              'languages': _splitCsv(langsCtrl.text),
+                              'facts': _splitLines(factsCtrl.text),
+                              'traits': _splitLines(traitsCtrl.text),
+                            };
+                            final res = await _patchPerson(id, body);
+                            if (!mounted) return;
+                            if (res == null) {
+                              Navigator.of(ctx).pop();
+                              await _loadPeople();
+                              if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('saved', style: HackerTheme.mono(size: 11, color: HackerTheme.green)), backgroundColor: HackerTheme.bgCard, duration: const Duration(seconds: 2)),
+                              );
+                            } else {
+                              setLocal(() { saving = false; errMsg = res; });
+                            }
+                          },
+                          child: Text('SAVE', style: HackerTheme.mono(size: 11, color: HackerTheme.green)),
+                        ),
+                      ]),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _confirmDeletePerson(Map<String, dynamic> person) {
+    final id = person['id'] as String?;
+    if (id == null) return;
+    final name = person['display_name'] ?? 'this person';
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: HackerTheme.bgPanel,
+        shape: const RoundedRectangleBorder(side: BorderSide(color: HackerTheme.red)),
+        title: Text('DELETE $name?', style: HackerTheme.mono(size: 12, color: HackerTheme.red)),
+        content: Text(
+          'This removes the identity from neo-brain.\nMemories attached by subject_id will unlink (set to NULL). This cannot be undone.',
+          style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.white),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: Text('CANCEL', style: HackerTheme.mono(size: 11, color: HackerTheme.dimText))),
+          OutlinedButton(
+            style: OutlinedButton.styleFrom(side: const BorderSide(color: HackerTheme.red)),
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              final err = await _deletePerson(id);
+              if (!mounted) return;
+              if (err == null) {
+                await _loadPeople();
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                  content: Text('deleted', style: HackerTheme.mono(size: 11, color: HackerTheme.red)),
+                  backgroundColor: HackerTheme.bgCard,
+                  duration: const Duration(seconds: 2),
+                ));
+              } else {
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                  content: Text('delete failed: $err', style: HackerTheme.mono(size: 11, color: HackerTheme.red)),
+                  backgroundColor: HackerTheme.bgCard,
+                ));
+              }
+            },
+            child: Text('DELETE', style: HackerTheme.mono(size: 11, color: HackerTheme.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Returns null on success, error string on failure.
+  Future<String?> _patchPerson(String id, Map<String, dynamic> body) async {
+    try {
+      final res = await http.patch(
+        Uri.parse('${AppConfig.apiBaseUrl}/api/siti/api/people/$id'),
+        headers: {
+          'Authorization': 'Bearer ${AppConfig.authToken}',
+          'content-type': 'application/json',
+        },
+        body: jsonEncode(body),
+      ).timeout(const Duration(seconds: 15));
+      if (res.statusCode >= 400) {
+        try { final j = jsonDecode(res.body); return j['error']?.toString() ?? 'HTTP ${res.statusCode}'; } catch (_) {}
+        return 'HTTP ${res.statusCode}';
+      }
+      return null;
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
+  Future<String?> _deletePerson(String id) async {
+    try {
+      final res = await http.delete(
+        Uri.parse('${AppConfig.apiBaseUrl}/api/siti/api/people/$id'),
+        headers: {'Authorization': 'Bearer ${AppConfig.authToken}'},
+      ).timeout(const Duration(seconds: 15));
+      if (res.statusCode >= 400) {
+        try { final j = jsonDecode(res.body); return j['error']?.toString() ?? 'HTTP ${res.statusCode}'; } catch (_) {}
+        return 'HTTP ${res.statusCode}';
+      }
+      return null;
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
+  // Form helpers
+
+  Widget _fieldLabel(String t) => Padding(
+    padding: const EdgeInsets.only(top: 10, bottom: 4),
+    child: Text('// $t', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.dimText)),
+  );
+
+  Widget _textField(TextEditingController c, {String? hint, int maxLines = 1}) => TextField(
+    controller: c,
+    maxLines: maxLines,
+    style: HackerTheme.monoNoGlow(size: 11, color: HackerTheme.white),
+    decoration: InputDecoration(
+      hintText: hint,
+      hintStyle: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.dimText),
+      isDense: true,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      border: const OutlineInputBorder(borderSide: BorderSide(color: HackerTheme.borderDim)),
+      enabledBorder: const OutlineInputBorder(borderSide: BorderSide(color: HackerTheme.borderDim)),
+      focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: HackerTheme.green)),
+    ),
+  );
+
+  String _csv(dynamic v) {
+    if (v is List) return v.map((x) => x.toString()).join(', ');
+    return '';
+  }
+  String _multiline(dynamic v) {
+    if (v is List) return v.map((x) => x.toString()).join('\n');
+    return '';
+  }
+  List<String> _splitCsv(String s) => s.split(',').map((x) => x.trim()).where((x) => x.isNotEmpty).toList();
+  List<String> _splitLines(String s) => s.split('\n').map((x) => x.trim()).where((x) => x.isNotEmpty).toList();
 }
