@@ -42,7 +42,16 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
     super.initState();
     _tabCtrl = TabController(length: 5, vsync: this);
     _loadAll();
-    _timer = Timer.periodic(const Duration(seconds: 20), (_) => _loadAll());
+    _applyPollInterval();
+  }
+
+  // Poll faster while waiting for QR scan (QR codes expire in ~60s).
+  void _applyPollInterval() {
+    final wa = _health?['status'];
+    final fast = wa == 'waiting_scan' || wa == 'starting';
+    final interval = Duration(seconds: fast ? 3 : 20);
+    _timer?.cancel();
+    _timer = Timer.periodic(interval, (_) => _loadAll());
   }
 
   @override
@@ -78,6 +87,7 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
           _loading = false;
           _error = (health == null && status == null) ? 'Cannot reach Siti' : null;
         });
+        _applyPollInterval();
       }
     } catch (e) {
       if (mounted) setState(() { _error = e.toString(); _loading = false; });
@@ -324,9 +334,16 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
     final memInfo = stats['mem'];
     final diskInfo = stats['disk'];
 
+    final qrDataUrl = (stats['qrDataUrl'] as String?) ?? '';
+    final isScanWaiting = waStatus.toString() == 'waiting_scan' && qrDataUrl.isNotEmpty;
+
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
+        if (isScanWaiting) ...[
+          _buildQrCard(qrDataUrl),
+          const SizedBox(height: 16),
+        ],
         _section('WHATSAPP CONTROLS'),
         Wrap(
           spacing: 8,
@@ -334,7 +351,7 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
           children: [
             _waControlButton('START WA', Icons.play_arrow, HackerTheme.green, '/api/whatsapp/start'),
             _waControlButton('STOP WA', Icons.stop, HackerTheme.red, '/api/whatsapp/stop'),
-            _waControlButton('FRESH START', Icons.refresh, HackerTheme.amber, '/api/whatsapp/fresh'),
+            _waRelinkButton(),
             _waControlButton('SYNC CONTACTS', Icons.sync, HackerTheme.cyan, '/api/whatsapp/sync'),
           ],
         ),
@@ -421,6 +438,98 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
             Text(label, style: HackerTheme.monoNoGlow(size: 9, color: color)),
           ],
         ),
+      ),
+    );
+  }
+
+  // "Re-link" destroys the current session, so confirm first.
+  Widget _waRelinkButton() {
+    return GestureDetector(
+      onTap: _confirmRelink,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: HackerTheme.bgCard,
+          border: Border.all(color: HackerTheme.amber.withValues(alpha: 0.6)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.qr_code_2, size: 14, color: HackerTheme.amber),
+            const SizedBox(width: 6),
+            Text('RE-LINK (NEW QR)', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.amber)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _confirmRelink() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: HackerTheme.bgPanel,
+        shape: const RoundedRectangleBorder(side: BorderSide(color: HackerTheme.amber)),
+        title: Text('RE-LINK WHATSAPP?', style: HackerTheme.mono(size: 14, color: HackerTheme.amber)),
+        content: Text(
+          'This will wipe the current Siti session and generate a new QR code. You will need to scan it from WhatsApp → Linked Devices.',
+          style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.dimText),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text('CANCEL', style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.dimText)),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              final result = await _postJson('/api/whatsapp/fresh', {});
+              if (result != null) {
+                SoundService.instance.playAcknowledged();
+                _showSnack('Re-link started — QR will appear shortly');
+                _loadAll();
+              } else {
+                SoundService.instance.playWarning();
+                _showSnack('RE-LINK: FAILED', error: true);
+              }
+            },
+            child: Text('RE-LINK', style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.amber)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQrCard(String qrDataUrl) {
+    // qrDataUrl looks like "data:image/png;base64,iVBORw0K..."
+    final commaIdx = qrDataUrl.indexOf(',');
+    if (commaIdx < 0) return const SizedBox.shrink();
+    final bytes = base64Decode(qrDataUrl.substring(commaIdx + 1));
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: HackerTheme.terminalBox(active: true),
+      child: Column(
+        children: [
+          Text('AWAITING QR SCAN', style: HackerTheme.mono(size: 13, color: HackerTheme.amber)),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(8),
+            color: Colors.white,
+            child: Image.memory(bytes, width: 240, height: 240, gaplessPlayback: true),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'WhatsApp → Settings → Linked Devices → Link a Device',
+            style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.amber),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Code refreshes every few seconds until scanned.',
+            style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText),
+            textAlign: TextAlign.center,
+          ),
+        ],
       ),
     );
   }
