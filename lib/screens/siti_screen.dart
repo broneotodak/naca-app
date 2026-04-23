@@ -637,19 +637,25 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
   // ══════════════════════════════════════════════════
 
   String _contactSearch = '';
-  bool _showAllContacts = false;
+  bool _showAllPersonal = false;
+  int _contactTab = 0; // 0 = personal, 1 = groups
 
-  List<Map<String, dynamic>> get _activeContacts =>
-      _contacts.where((c) {
+  List<Map<String, dynamic>> get _groupContacts =>
+      _contacts.where((c) => c['kind'] == 'group').toList();
+
+  List<Map<String, dynamic>> get _personalContacts =>
+      _contacts.where((c) => c['kind'] != 'group').toList();
+
+  List<Map<String, dynamic>> get _activePersonal =>
+      _personalContacts.where((c) {
         final perm = (c['permission'] ?? 'readonly').toString();
         return perm != 'readonly';
       }).toList();
 
-  List<Map<String, dynamic>> get _filteredContacts {
-    final source = _showAllContacts ? _contacts : _activeContacts;
-    if (_contactSearch.isEmpty) return source;
+  List<Map<String, dynamic>> _applySearch(List<Map<String, dynamic>> list) {
+    if (_contactSearch.isEmpty) return list;
     final q = _contactSearch.toLowerCase();
-    return source.where((c) {
+    return list.where((c) {
       final name = (c['name'] ?? '').toString().toLowerCase();
       final phone = (c['phone'] ?? '').toString().toLowerCase();
       final perm = (c['permission'] ?? '').toString().toLowerCase();
@@ -658,88 +664,150 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
   }
 
   Widget _buildContacts() {
-    final filtered = _filteredContacts;
-    final activeCount = _activeContacts.length;
-    final totalCount = _contacts.length;
+    final groups = _applySearch(_groupContacts);
+    final personalSource = _showAllPersonal ? _personalContacts : _activePersonal;
+    final personal = _applySearch(personalSource);
 
     return Column(
       children: [
-        // Search + controls bar
+        // Search field
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          child: Column(
-            children: [
-              // Search field
-              Container(
-                height: 32,
-                decoration: BoxDecoration(
-                  color: HackerTheme.bgCard,
-                  border: Border.all(color: HackerTheme.borderDim),
-                ),
-                child: TextField(
-                  style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.white),
-                  decoration: InputDecoration(
-                    hintText: 'Search contacts...',
-                    hintStyle: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.dimText),
-                    prefixIcon: const Icon(Icons.search, size: 14, color: HackerTheme.dimText),
-                    border: InputBorder.none,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 8),
-                    isDense: true,
-                  ),
-                  onChanged: (v) => setState(() => _contactSearch = v),
-                ),
+          padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
+          child: Container(
+            height: 32,
+            decoration: BoxDecoration(
+              color: HackerTheme.bgCard,
+              border: Border.all(color: HackerTheme.borderDim),
+            ),
+            child: TextField(
+              style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.white),
+              decoration: InputDecoration(
+                hintText: 'Search contacts & groups...',
+                hintStyle: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.dimText),
+                prefixIcon: const Icon(Icons.search, size: 14, color: HackerTheme.dimText),
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                isDense: true,
               ),
-              const SizedBox(height: 6),
-              // Stats + toggle + add
-              Row(
-                children: [
-                  Text(
-                    _showAllContacts
-                        ? '${filtered.length} of $totalCount'
-                        : '$activeCount active of $totalCount',
-                    style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.dimText),
-                  ),
-                  const Spacer(),
-                  GestureDetector(
-                    onTap: () => setState(() => _showAllContacts = !_showAllContacts),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: _showAllContacts ? HackerTheme.amber : HackerTheme.borderDim),
-                      ),
-                      child: Text(
-                        _showAllContacts ? 'ACTIVE ONLY' : 'VIEW ALL $totalCount',
-                        style: HackerTheme.monoNoGlow(size: 8, color: _showAllContacts ? HackerTheme.amber : HackerTheme.dimText),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  GestureDetector(
-                    onTap: _showAddContactDialog,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(border: Border.all(color: HackerTheme.green)),
-                      child: Text('+ ADD', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.green)),
-                    ),
-                  ),
-                ],
+              onChanged: (v) => setState(() => _contactSearch = v),
+            ),
+          ),
+        ),
+        const SizedBox(height: 6),
+        // Sub-tabs: Personal | Groups
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Row(
+            children: [
+              _contactSubTab('CONTACTS', _activePersonal.length, 0),
+              const SizedBox(width: 8),
+              _contactSubTab('GROUPS', _groupContacts.length, 1),
+              const Spacer(),
+              GestureDetector(
+                onTap: _showAddContactDialog,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(border: Border.all(color: HackerTheme.green)),
+                  child: Text('+ ADD', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.green)),
+                ),
               ),
             ],
           ),
         ),
-        Expanded(
-          child: filtered.isEmpty
-              ? Center(child: Text(
-                  _contactSearch.isNotEmpty ? 'No matches for "$_contactSearch"' : 'No contacts loaded',
-                  style: HackerTheme.monoNoGlow(size: 11, color: HackerTheme.dimText),
-                ))
-              : ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  itemCount: filtered.length,
-                  itemBuilder: (ctx, i) => _contactTile(filtered[i]),
+        const SizedBox(height: 4),
+        // Tab content
+        if (_contactTab == 0) ...[
+          // Personal controls
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              children: [
+                Text(
+                  _showAllPersonal
+                      ? '${personal.length} of ${_personalContacts.length}'
+                      : '${personal.length} active of ${_personalContacts.length}',
+                  style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText),
                 ),
+                const Spacer(),
+                GestureDetector(
+                  onTap: () => setState(() => _showAllPersonal = !_showAllPersonal),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: _showAllPersonal ? HackerTheme.amber : HackerTheme.borderDim),
+                    ),
+                    child: Text(
+                      _showAllPersonal ? 'ACTIVE ONLY' : 'VIEW ALL ${_personalContacts.length}',
+                      style: HackerTheme.monoNoGlow(size: 7, color: _showAllPersonal ? HackerTheme.amber : HackerTheme.dimText),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
+        ],
+        if (_contactTab == 1)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Text(
+              '${groups.length} groups where Siti is active',
+              style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText),
+            ),
+          ),
+        const SizedBox(height: 2),
+        Expanded(
+          child: () {
+            final list = _contactTab == 0 ? personal : groups;
+            if (list.isEmpty) {
+              return Center(child: Text(
+                _contactSearch.isNotEmpty ? 'No matches for "$_contactSearch"' : 'No contacts loaded',
+                style: HackerTheme.monoNoGlow(size: 11, color: HackerTheme.dimText),
+              ));
+            }
+            return ListView.builder(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              itemCount: list.length,
+              itemBuilder: (ctx, i) => _contactTile(list[i]),
+            );
+          }(),
         ),
       ],
+    );
+  }
+
+  Widget _contactSubTab(String label, int count, int index) {
+    final active = _contactTab == index;
+    return GestureDetector(
+      onTap: () => setState(() => _contactTab = index),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          border: Border(bottom: BorderSide(
+            color: active ? HackerTheme.green : Colors.transparent,
+            width: 2,
+          )),
+        ),
+        child: Row(
+          children: [
+            Text(label, style: HackerTheme.monoNoGlow(
+              size: 9,
+              color: active ? HackerTheme.green : HackerTheme.dimText,
+            )),
+            const SizedBox(width: 4),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+              decoration: BoxDecoration(
+                border: Border.all(color: active ? HackerTheme.green.withValues(alpha: 0.5) : HackerTheme.borderDim),
+              ),
+              child: Text('$count', style: HackerTheme.monoNoGlow(
+                size: 7,
+                color: active ? HackerTheme.green : HackerTheme.dimText,
+              )),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
