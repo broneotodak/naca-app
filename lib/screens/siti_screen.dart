@@ -22,7 +22,6 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
 
   Map<String, dynamic>? _health;
   List<Map<String, dynamic>> _recentMessages = [];
-  List<Map<String, dynamic>> _persons = [];
   List<Map<String, dynamic>> _contacts = [];
   Map<String, dynamic> _settings = {};
   bool _loading = true;
@@ -40,7 +39,7 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
-    _tabCtrl = TabController(length: 5, vsync: this);
+    _tabCtrl = TabController(length: 4, vsync: this);
     _loadAll();
     _applyPollInterval();
   }
@@ -65,7 +64,7 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
     try {
       final health = await _fetchJson('/api/health');
       final status = await _fetchJson('/api/status');
-      final people = await _fetchJson('/api/people');
+      // people list moved to MEM → PEOPLE tab (direct neo-brain); no longer fetched here
       final contactsData = await _fetchJson('/api/contacts');
       final settingsData = await _fetchJson('/api/settings');
 
@@ -79,7 +78,6 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
           _recentMessages = _extractMessages(status);
           _messageOffset = _recentMessages.length;
           _hasMoreMessages = _recentMessages.length >= 50;
-          _persons = _safeList(people, 'people');
           _contacts = _safeList(contactsData, 'contacts');
           if (settingsData != null && settingsData['settings'] is Map) {
             _settings = Map<String, dynamic>.from(settingsData['settings'] as Map);
@@ -185,7 +183,6 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
               Tab(text: 'STATUS'),
               Tab(text: 'MESSAGES'),
               Tab(text: 'CONTACTS'),
-              Tab(text: 'PERSONS'),
               Tab(text: 'CONFIG'),
             ],
           ),
@@ -202,7 +199,6 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
                               _buildStatus(),
                               _buildMessages(),
                               _buildContacts(),
-                              _buildPersons(),
                               _buildConfig(),
                             ],
                           ),
@@ -326,7 +322,6 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
 
   Widget _buildStatus() {
     final stats = _health ?? {};
-    final personCount = _persons.length;
     final msgCount = _recentMessages.length;
     final waStatus = stats['status'] ?? 'unknown';
     final connAs = stats['connectedAs'] ?? '';
@@ -369,7 +364,6 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
               _statRow('WhatsApp', waStatus.toString()),
               _statRow('Phone', connAs.toString().isNotEmpty ? '+$connAs' : '+60126714634'),
               _statRow('Contacts', '$contacts'),
-              _statRow('Persons (graph)', '$personCount'),
               _statRow('Recent messages', '$msgCount'),
               if (memInfo is Map) _statRow('Memory', '${((memInfo['total'] as num) / 1e9).toStringAsFixed(1)}GB (${memInfo['pct_used']}% used)'),
               if (diskInfo is Map) _statRow('Disk', '${((diskInfo['total'] as num) / 1e9).toStringAsFixed(0)}GB (${diskInfo['pct_used']}% used)'),
@@ -1046,75 +1040,7 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
   }
 
   // ══════════════════════════════════════════════════
-  // TAB 4: PERSONS (existing)
-  // ══════════════════════════════════════════════════
-
-  Widget _buildPersons() {
-    if (_persons.isEmpty) {
-      return Center(child: Text('No persons tracked', style: HackerTheme.monoNoGlow(size: 11, color: HackerTheme.dimText)));
-    }
-    return ListView.builder(
-      padding: const EdgeInsets.all(12),
-      itemCount: _persons.length,
-      itemBuilder: (ctx, i) {
-        final p = _persons[i];
-        final name = p['display_name'] ?? p['name'] ?? 'Unknown';
-        final kind = p['kind'] ?? '';
-        final notes = p['notes'] ?? '';
-        final identifiers = p['identifiers'] as List? ?? [];
-        final facts = p['facts'] as List? ?? [];
-
-        final kindColor = switch (kind.toString()) {
-          'self' => HackerTheme.green,
-          'bot' => HackerTheme.cyan,
-          'group' => HackerTheme.amber,
-          _ => HackerTheme.white,
-        };
-
-        return Container(
-          margin: const EdgeInsets.only(bottom: 6),
-          padding: const EdgeInsets.all(8),
-          decoration: HackerTheme.terminalBox(),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(children: [
-                Text(name.toString(), style: HackerTheme.monoNoGlow(size: 11, color: kindColor)),
-                if (kind.toString().isNotEmpty) ...[
-                  const SizedBox(width: 6),
-                  Text(kind.toString(), style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText)),
-                ],
-              ]),
-              if (identifiers.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 2),
-                  child: Wrap(spacing: 8, children: identifiers.take(2).map<Widget>((id) {
-                    if (id is Map) return Text('${id['type']}:${id['value']}', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.grey));
-                    return Text(id.toString(), style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.grey));
-                  }).toList()),
-                ),
-              if (notes.toString().isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 2),
-                  child: Text(notes.toString(), style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.dimText), maxLines: 2, overflow: TextOverflow.ellipsis),
-                ),
-              if (facts.isNotEmpty) ...[
-                const SizedBox(height: 4),
-                ...facts.take(3).map((f) {
-                  final text = f is Map ? (f['fact'] ?? f.toString()) : f.toString();
-                  return Text('• $text', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.grey), overflow: TextOverflow.ellipsis);
-                }),
-                if (facts.length > 3) Text('+${facts.length - 3} more', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText)),
-              ],
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  // ══════════════════════════════════════════════════
-  // TAB 5: CONFIG (NEW)
+  // TAB 4: CONFIG (was TAB 5 before PERSONS sub-tab was dropped — moved to MEM → PEOPLE)
   // ══════════════════════════════════════════════════
 
   Widget _buildConfig() {
