@@ -197,9 +197,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         if (type == 'assistant_text') {
           pane.isProcessing = false;
         }
-        if (type == 'tool_call') {
-          SoundService.instance.playIncomingTransmission();
-        }
         if (type == 'error') {
           SoundService.instance.playMissionFailed();
         }
