@@ -636,34 +636,107 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
   // TAB 3: CONTACTS (NEW)
   // ══════════════════════════════════════════════════
 
+  String _contactSearch = '';
+  bool _showAllContacts = false;
+
+  List<Map<String, dynamic>> get _activeContacts =>
+      _contacts.where((c) {
+        final perm = (c['permission'] ?? 'readonly').toString();
+        return perm != 'readonly';
+      }).toList();
+
+  List<Map<String, dynamic>> get _filteredContacts {
+    final source = _showAllContacts ? _contacts : _activeContacts;
+    if (_contactSearch.isEmpty) return source;
+    final q = _contactSearch.toLowerCase();
+    return source.where((c) {
+      final name = (c['name'] ?? '').toString().toLowerCase();
+      final phone = (c['phone'] ?? '').toString().toLowerCase();
+      final perm = (c['permission'] ?? '').toString().toLowerCase();
+      return name.contains(q) || phone.contains(q) || perm.contains(q);
+    }).toList();
+  }
+
   Widget _buildContacts() {
+    final filtered = _filteredContacts;
+    final activeCount = _activeContacts.length;
+    final totalCount = _contacts.length;
+
     return Column(
       children: [
-        // Add contact button
+        // Search + controls bar
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          child: Row(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          child: Column(
             children: [
-              Text('${_contacts.length} contacts', style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.dimText)),
-              const Spacer(),
-              GestureDetector(
-                onTap: _showAddContactDialog,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(border: Border.all(color: HackerTheme.green)),
-                  child: Text('+ ADD', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.green)),
+              // Search field
+              Container(
+                height: 32,
+                decoration: BoxDecoration(
+                  color: HackerTheme.bgCard,
+                  border: Border.all(color: HackerTheme.borderDim),
                 ),
+                child: TextField(
+                  style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.white),
+                  decoration: InputDecoration(
+                    hintText: 'Search contacts...',
+                    hintStyle: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.dimText),
+                    prefixIcon: const Icon(Icons.search, size: 14, color: HackerTheme.dimText),
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                    isDense: true,
+                  ),
+                  onChanged: (v) => setState(() => _contactSearch = v),
+                ),
+              ),
+              const SizedBox(height: 6),
+              // Stats + toggle + add
+              Row(
+                children: [
+                  Text(
+                    _showAllContacts
+                        ? '${filtered.length} of $totalCount'
+                        : '$activeCount active of $totalCount',
+                    style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.dimText),
+                  ),
+                  const Spacer(),
+                  GestureDetector(
+                    onTap: () => setState(() => _showAllContacts = !_showAllContacts),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: _showAllContacts ? HackerTheme.amber : HackerTheme.borderDim),
+                      ),
+                      child: Text(
+                        _showAllContacts ? 'ACTIVE ONLY' : 'VIEW ALL $totalCount',
+                        style: HackerTheme.monoNoGlow(size: 8, color: _showAllContacts ? HackerTheme.amber : HackerTheme.dimText),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  GestureDetector(
+                    onTap: _showAddContactDialog,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(border: Border.all(color: HackerTheme.green)),
+                      child: Text('+ ADD', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.green)),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
         ),
         Expanded(
-          child: _contacts.isEmpty
-              ? Center(child: Text('No contacts loaded', style: HackerTheme.monoNoGlow(size: 11, color: HackerTheme.dimText)))
+          child: filtered.isEmpty
+              ? Center(child: Text(
+                  _contactSearch.isNotEmpty ? 'No matches for "$_contactSearch"' : 'No contacts loaded',
+                  style: HackerTheme.monoNoGlow(size: 11, color: HackerTheme.dimText),
+                ))
               : ListView.builder(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
-                  itemCount: _contacts.length,
-                  itemBuilder: (ctx, i) => _contactTile(_contacts[i]),
+                  itemCount: filtered.length,
+                  itemBuilder: (ctx, i) => _contactTile(filtered[i]),
                 ),
         ),
       ],
