@@ -1,0 +1,47 @@
+name: Build & Deploy NACA Web
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'lib/**'
+      - 'web/**'
+      - 'pubspec.*'
+      - '.github/workflows/deploy.yml'
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.7'
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build web
+        run: flutter build web --release
+
+      - name: Deploy to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: 178.156.241.204
+          username: openclaw
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: "build/web/*"
+          target: "/home/openclaw/naca-app/"
+          strip_components: 0
+
+      - name: Notify via agent_commands
+        if: success()
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer ${{ secrets.NACA_AUTH_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{"to_agent":"siti","command":"send_whatsapp_notification","payload":{"message":"🚀 NACA web deployed successfully from GitHub Actions","to":"60177519610"}}' \
+            https://naca.neotodak.com/api/agents/commands || true
