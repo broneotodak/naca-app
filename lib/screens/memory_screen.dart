@@ -842,6 +842,43 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
                       child: SingleChildScrollView(
                         padding: const EdgeInsets.all(14),
                         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                          // Read-only identifiers strip — helps disambiguate who you're editing
+                          if (person['identifiers'] is List && (person['identifiers'] as List).isNotEmpty) ...[
+                            Text('// IDENTIFIERS (read-only)', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.dimText)),
+                            const SizedBox(height: 4),
+                            Wrap(spacing: 6, runSpacing: 4, children: (person['identifiers'] as List).map<Widget>((id) {
+                              final type = id is Map ? (id['type'] ?? '').toString() : '';
+                              final value = id is Map ? (id['value'] ?? '').toString() : id.toString();
+                              final chipColor = switch (type) {
+                                'phone' => HackerTheme.cyan,
+                                'lid' => HackerTheme.amber,
+                                'push_name' => HackerTheme.grey,
+                                _ => HackerTheme.dimText,
+                              };
+                              return Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(border: Border.all(color: chipColor.withValues(alpha: 0.5))),
+                                child: Text('$type: $value', style: HackerTheme.monoNoGlow(size: 9, color: chipColor)),
+                              );
+                            }).toList()),
+                            const SizedBox(height: 4),
+                            Text('// identifiers are set by Siti from real interactions — not edited here', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText)),
+                            const SizedBox(height: 6),
+                            const Divider(color: HackerTheme.borderDim, height: 1),
+                          ],
+                          // Show Siti-extracted counts so it's obvious where the rich data lives
+                          Padding(
+                            padding: const EdgeInsets.only(top: 6, bottom: 6),
+                            child: Wrap(spacing: 10, runSpacing: 2, children: [
+                              Text('// siti-extracted:', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.dimText)),
+                              Text('${_facts.where((f) => f['subject_id'] == person['id']).length} facts', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.cyan)),
+                              Text('${_personality.where((p) => p['subject_id'] == person['id']).length} traits', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.cyan)),
+                              Text('(separate tables — not edited here)', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText)),
+                            ]),
+                          ),
+                          const Divider(color: HackerTheme.borderDim, height: 1),
+                          const SizedBox(height: 4),
+                          Text('// inline fields below = quick freeform notes you add manually', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText)),
                           _fieldLabel('display_name'),
                           _textField(displayCtrl),
                           _fieldLabel('push_name'),
