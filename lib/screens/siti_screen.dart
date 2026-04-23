@@ -107,7 +107,7 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
   Future<Map<String, dynamic>?> _fetchJson(String path) async {
     try {
       final headers = kIsWeb ? {'Authorization': 'Bearer ${AppConfig.authToken}'} : <String, String>{};
-      final res = await http.get(Uri.parse('$_sitiBase$path'), headers: headers).timeout(const Duration(seconds: 8));
+      final res = await http.get(Uri.parse('$_sitiBase$path'), headers: headers).timeout(const Duration(seconds: 20));
       if (res.statusCode < 400) return jsonDecode(res.body);
       return null;
     } catch (_) {
