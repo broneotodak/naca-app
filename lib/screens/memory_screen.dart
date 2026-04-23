@@ -61,7 +61,7 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
   Future<void> _loadPeople() async {
     try {
       final ppl = await _sb.from('people')
-          .select('id, display_name, kind, notes, identifiers, metadata, created_at')
+          .select('id, display_name, kind, notes, identifiers, metadata, created_at, phone, lid, push_name, relationship, bio, nicknames, languages, facts, traits')
           .order('updated_at', ascending: false)
           .limit(50);
       final factsData = await _sb.from('facts')
