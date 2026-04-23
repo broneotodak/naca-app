@@ -1,9 +1,8 @@
-import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'dart:js_interop';
 
-/// C&C-inspired sound effects using Web Audio API synthesis.
-/// Tones generated programmatically — no external audio files needed.
+/// C&C-inspired sound effects using real MP3 files.
+/// Sound files in web/sounds/ — played via HTML5 Audio API.
 class SoundService {
   static final SoundService _instance = SoundService._();
   static SoundService get instance => _instance;
@@ -11,78 +10,76 @@ class SoundService {
 
   bool enabled = true;
 
-  // === C&C Event Sounds ===
+  // === C&C Event Sounds (Real MP3) ===
 
-  /// Session created / new agent spawned
-  void playBuilding() => _play([
-    _T(440, 0.1, 'square'), _T(550, 0.1, 'square'), _T(660, 0.15, 'square'),
-  ]);
+  /// Session started / agent processing / new build starting
+  void playBuilding() => _playFile('Building_online');
+
+  /// New notification / incoming command / WhatsApp message
+  void playIncomingTransmission() => _playFile('Incoming_transmission');
+
+  /// Task completed / PR merged / deploy done
+  void playMissionAccomplished() => _playFile('Mission_accomplished');
+
+  /// Error / task failed / deploy failed
+  void playMissionFailed() => _playFile('Mission_failed');
+
+  /// Agent upgraded / intent decomposed / approval completed
+  void playUnitUpgraded() => _playFile('Unit_upgraded');
+
+  /// Response received / PR created / build complete
+  void playUpgradeComplete() => _playFile('Upgrade_complete');
+
+  /// Sending prompt / command dispatched / processing
+  void playUpgradeInProgress() => _playFile('Upgrade_inprogress');
+
+  // === Legacy API (mapped to new sounds for backward compat) ===
 
   /// Task/build completed successfully
-  void playConstructionComplete() => _play([
-    _T(523, 0.12, 'square'), _T(659, 0.12, 'square'), _T(784, 0.12, 'square'), _T(1047, 0.25, 'square'),
-  ]);
+  void playConstructionComplete() => _playFile('Upgrade_complete');
 
   /// New command received
-  void playNewUnit() => _play([
-    _T(880, 0.08, 'sine'), _T(1100, 0.12, 'sine'),
-  ]);
+  void playNewUnit() => _playFile('Incoming_transmission');
 
   /// Agent ready / session started
-  void playUnitReady() => _play([
-    _T(600, 0.1, 'sawtooth'), _T(800, 0.15, 'sawtooth'),
-  ]);
+  void playUnitReady() => _playFile('Building_online');
 
-  /// Command acknowledged
-  void playAcknowledged() => _play([
-    _T(700, 0.06, 'sine'), _T(900, 0.08, 'sine'),
-  ]);
+  /// Command acknowledged / dispatched
+  void playAcknowledged() => _playFile('Upgrade_inprogress');
 
   /// Success / affirmative
-  void playAffirmative() => _play([
-    _T(440, 0.1, 'sine'), _T(554, 0.1, 'sine'), _T(659, 0.15, 'sine'),
-  ]);
+  void playAffirmative() => _playFile('Unit_upgraded');
 
   /// Warning / degraded status
-  void playWarning() => _play([
-    _T(400, 0.15, 'sawtooth'), _T(350, 0.15, 'sawtooth'), _T(400, 0.15, 'sawtooth'),
-  ]);
+  void playWarning() => _playFile('Mission_failed');
 
   /// Error / failure
-  void playError() => _play([
-    _T(300, 0.2, 'square'), _T(200, 0.3, 'square'),
-  ]);
+  void playError() => _playFile('Mission_failed');
 
   /// Can't perform action
-  void playInsufficientFunds() => _play([
-    _T(350, 0.1, 'square'), _T(280, 0.1, 'square'), _T(220, 0.2, 'square'),
-  ]);
-
-  /// All tasks done
-  void playMissionAccomplished() => _play([
-    _T(523, 0.12, 'sine'), _T(659, 0.12, 'sine'), _T(784, 0.12, 'sine'),
-    _T(1047, 0.15, 'sine'), _T(784, 0.08, 'sine'), _T(1047, 0.3, 'sine'),
-  ]);
+  void playInsufficientFunds() => _playFile('Mission_failed');
 
   /// Message sent
-  void playSent() => _play([
-    _T(800, 0.05, 'sine'), _T(1200, 0.08, 'sine'),
-  ]);
+  void playSent() => _playFile('Upgrade_inprogress');
 
-  /// Navigation click
-  void playClick() => _play([
-    _T(1000, 0.03, 'sine'),
-  ]);
+  /// Navigation click (keep as synth — MP3 too heavy for clicks)
+  void playClick() => _playSynth();
 
-  void _play(List<_T> tones) {
-    if (!enabled) return;
-    if (kIsWeb) {
-      try {
-        final jsonTones = tones.map((t) => {'freq': t.f, 'dur': t.d, 'type': t.w}).toList();
-        _callNacaSound(jsonEncode(jsonTones).toJS);
-      } catch (e) {
-        debugPrint('[SFX] $e');
-      }
+  void _playFile(String name) {
+    if (!enabled || !kIsWeb) return;
+    try {
+      _jsEval('(function(){var a=new Audio("sounds/${name}.mp3");a.volume=0.4;a.play().catch(function(){})})()'.toJS);
+    } catch (e) {
+      debugPrint('[SFX] $e');
+    }
+  }
+
+  void _playSynth() {
+    if (!enabled || !kIsWeb) return;
+    try {
+      _jsPlayClick();
+    } catch (e) {
+      debugPrint('[SFX] $e');
     }
   }
 }
@@ -90,13 +87,13 @@ class SoundService {
 @JS('eval')
 external void _jsEval(JSString code);
 
-void _callNacaSound(JSString tonesJson) {
-  _jsEval('window.nacaSound($tonesJson)'.toJS);
-}
-
-class _T {
-  final double f; // frequency
-  final double d; // duration
-  final String w; // waveform type
-  const _T(this.f, this.d, this.w);
+void _jsPlayClick() {
+  _jsEval('''(function(){
+    var c=new (window.AudioContext||window.webkitAudioContext)();
+    var o=c.createOscillator();var g=c.createGain();
+    o.connect(g);g.connect(c.destination);
+    o.frequency.value=1000;o.type="sine";
+    g.gain.value=0.1;
+    o.start();o.stop(c.currentTime+0.03);
+  })()'''.toJS);
 }
