@@ -62,8 +62,8 @@ class SoundService {
   /// Message sent
   void playSent() => _playFile('Upgrade_inprogress');
 
-  /// Navigation click (keep as synth — MP3 too heavy for clicks)
-  void playClick() => _playSynth();
+  /// Navigation click
+  void playClick() => _playFile('Button_click');
 
   void _playFile(String name) {
     if (!enabled || !kIsWeb) return;
