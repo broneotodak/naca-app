@@ -21,6 +21,9 @@ const PORT = parseInt(process.env.PORT || '3100');
 const AUTH_TOKEN = process.env.AUTH_TOKEN;
 const sm = new SessionManager();
 
+// 15-second TTL cache for Uptime Kuma status-page fetches.
+let kumaCache = null;
+
 const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
@@ -304,6 +307,78 @@ const server = http.createServer(async (req, res) => {
     costs.totalCurrency = 'usd';
 
     json(res, costs);
+    return;
+  }
+
+  // =============================================
+  // UPTIME KUMA — status page proxy (NAS at 100.85.18.97:3001 is Tailnet-only)
+  // Returns combined { groups, monitors, lastUpdated }. Cached 15s.
+  // =============================================
+  if (urlPath === '/api/kuma/status' && req.method === 'GET') {
+    try {
+      const now = Date.now();
+      if (kumaCache && (now - kumaCache.ts) < 15000) {
+        json(res, kumaCache.data);
+        return;
+      }
+      const base = process.env.KUMA_URL || 'http://100.85.18.97:3001';
+      const slug = process.env.KUMA_SLUG || 'neo-fleet';
+      const fetchJson = (u) => new Promise((resolve, reject) => {
+        const r = http.get(u, { timeout: 5000 }, (resp) => {
+          let body = '';
+          resp.on('data', c => body += c);
+          resp.on('end', () => {
+            try { resolve(JSON.parse(body)); } catch (e) { reject(e); }
+          });
+        });
+        r.on('error', reject);
+        r.on('timeout', () => { r.destroy(); reject(new Error('timeout')); });
+      });
+      const [page, hb] = await Promise.all([
+        fetchJson(`${base}/api/status-page/${slug}`),
+        fetchJson(`${base}/api/status-page/heartbeat/${slug}`),
+      ]);
+      const groups = (page.publicGroupList || []).map(g => ({
+        id: g.id,
+        name: g.name,
+        weight: g.weight,
+        monitors: (g.monitorList || []).map(m => {
+          const beats = hb.heartbeatList?.[m.id] || [];
+          const last = beats[beats.length - 1];
+          const uptime24 = hb.uptimeList?.[`${m.id}_24`];
+          return {
+            id: m.id,
+            name: m.name,
+            type: m.type,
+            status: last?.status ?? null,         // 0=down, 1=up, 2=pending, 3=maintenance
+            statusLabel: last?.status === 1 ? 'up' : last?.status === 0 ? 'down' : last?.status === 2 ? 'pending' : 'unknown',
+            ping_ms: last?.ping ?? null,
+            msg: last?.msg ?? null,
+            last_seen: last?.time ?? null,
+            uptime_24h: typeof uptime24 === 'number' ? uptime24 : null,
+          };
+        }),
+      }));
+      const counts = { up: 0, down: 0, pending: 0, unknown: 0 };
+      for (const g of groups) for (const m of g.monitors) {
+        if (m.status === 1) counts.up++;
+        else if (m.status === 0) counts.down++;
+        else if (m.status === 2) counts.pending++;
+        else counts.unknown++;
+      }
+      const data = {
+        slug,
+        title: page.config?.title || 'Fleet',
+        statusPageUrl: `${base}/status/${slug}`,
+        groups,
+        counts,
+        lastUpdated: new Date().toISOString(),
+      };
+      kumaCache = { ts: now, data };
+      json(res, data);
+    } catch (e) {
+      json(res, { error: `kuma unreachable: ${e.message}` }, 502);
+    }
     return;
   }
 

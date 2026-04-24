@@ -34,6 +34,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // Service health
   Map<String, _ServiceStatus> _services = {};
 
+  // Uptime Kuma fleet status (grouped monitors)
+  Map<String, dynamic>? _kuma; // { groups: [...], counts: {up,down,...}, lastUpdated, statusPageUrl }
+
   // Expanded command IDs (for detail view)
   final Set<String> _expandedCmds = {};
 
@@ -65,10 +68,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _loadAll() async {
     try {
-      await Future.wait([_loadAgentData(), _checkServices(), _loadCosts(), _loadIntents()]);
+      await Future.wait([_loadAgentData(), _checkServices(), _loadCosts(), _loadIntents(), _loadKumaStatus()]);
       if (mounted) setState(() { _loading = false; _error = null; _lastRefresh = DateTime.now(); });
     } catch (e) {
       if (mounted) setState(() { _error = e.toString(); _loading = false; });
+    }
+  }
+
+  Future<void> _loadKumaStatus() async {
+    try {
+      final res = await http.get(
+        Uri.parse('${AppConfig.apiBaseUrl}/api/kuma/status'),
+        headers: {'Authorization': 'Bearer ${AppConfig.authToken}'},
+      ).timeout(const Duration(seconds: 10));
+      if (res.statusCode < 400 && mounted) {
+        _kuma = jsonDecode(res.body) as Map<String, dynamic>;
+      }
+    } catch (_) {
+      // keep last known state on transient errors
     }
   }
 
@@ -419,6 +436,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _buildServiceGrid(),
         const SizedBox(height: 16),
 
+        // Infrastructure (Uptime Kuma fleet)
+        if (_kuma != null) ...[
+          _section('INFRASTRUCTURE · UPTIME KUMA'),
+          _buildKumaPanel(),
+          const SizedBox(height: 16),
+        ],
+
         // Cost monitor
         if (_costServices.isNotEmpty) ...[
           _section('COST MONITOR'),
@@ -650,6 +674,110 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }).toList(),
     );
   }
+
+  // ── UPTIME KUMA FLEET HEALTH ──
+
+  Widget _buildKumaPanel() {
+    final groups = (_kuma?['groups'] as List?) ?? const [];
+    final counts = (_kuma?['counts'] as Map?) ?? const {};
+    final up = counts['up'] ?? 0, down = counts['down'] ?? 0,
+          pending = counts['pending'] ?? 0, unknown = counts['unknown'] ?? 0;
+    final allGreen = down == 0 && unknown == 0 && pending == 0;
+
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: HackerTheme.terminalBox(active: allGreen),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header row
+          Row(
+            children: [
+              Container(
+                width: 8, height: 8,
+                decoration: BoxDecoration(
+                  color: down > 0 ? HackerTheme.red : pending > 0 || unknown > 0 ? HackerTheme.amber : HackerTheme.green,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text('KUMA FLEET', style: HackerTheme.mono(size: 12, color: allGreen ? HackerTheme.green : HackerTheme.amber)),
+              const SizedBox(width: 8),
+              _kumaPill('$up up', HackerTheme.green),
+              if (down > 0) ...[ const SizedBox(width: 4), _kumaPill('$down down', HackerTheme.red) ],
+              if (pending > 0) ...[ const SizedBox(width: 4), _kumaPill('$pending pending', HackerTheme.amber) ],
+              if (unknown > 0) ...[ const SizedBox(width: 4), _kumaPill('$unknown ?', HackerTheme.dimText) ],
+            ],
+          ),
+          const Divider(color: HackerTheme.borderDim, height: 14),
+          // Groups
+          ...groups.map((g) => _buildKumaGroup(g as Map<String, dynamic>)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildKumaGroup(Map<String, dynamic> g) {
+    final name = (g['name'] ?? '').toString();
+    final monitors = (g['monitors'] as List?) ?? const [];
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(name.toUpperCase(), style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.dimText)),
+          const SizedBox(height: 4),
+          Wrap(
+            spacing: 6, runSpacing: 6,
+            children: monitors.map((m) => _buildKumaBadge(m as Map<String, dynamic>)).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildKumaBadge(Map<String, dynamic> m) {
+    final name = (m['name'] ?? '?').toString();
+    final status = m['status']; // 0 down, 1 up, 2 pending, null unknown
+    final ping = m['ping_ms'];
+    final uptime24 = m['uptime_24h'];
+    final color = status == 1 ? HackerTheme.green
+        : status == 0 ? HackerTheme.red
+        : status == 2 ? HackerTheme.amber
+        : HackerTheme.dimText;
+    final icon = status == 1 ? '●' : status == 0 ? '○' : status == 2 ? '◐' : '?';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: HackerTheme.bgCard,
+        border: Border.all(color: color.withValues(alpha: 0.5)),
+        boxShadow: status == 1 ? [BoxShadow(color: color.withValues(alpha: 0.2), blurRadius: 4)] : null,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(icon, style: TextStyle(color: color, fontSize: 11)),
+          const SizedBox(width: 6),
+          Text(name, style: HackerTheme.monoNoGlow(size: 9, color: color)),
+          if (ping != null) ...[
+            const SizedBox(width: 6),
+            Text('${ping}ms', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.grey)),
+          ],
+          if (uptime24 is num && uptime24 > 0 && uptime24 < 1) ...[
+            const SizedBox(width: 6),
+            Text('${(uptime24 * 100).toStringAsFixed(1)}%', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.grey)),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _kumaPill(String text, Color color) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(border: Border.all(color: color.withValues(alpha: 0.5))),
+        child: Text(text, style: HackerTheme.monoNoGlow(size: 8, color: color)),
+      );
 
   // ── AGENT FLEET ──
 
