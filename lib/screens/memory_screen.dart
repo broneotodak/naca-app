@@ -395,9 +395,19 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
     if (personId == null) return;
 
     final name = person['display_name'] ?? 'Unknown';
+    final fullName = (person['full_name'] ?? '').toString();
     final kind = person['kind'] ?? '';
+    final relationship = (person['relationship'] ?? '').toString();
+    final bio = (person['bio'] ?? '').toString();
     final notes = person['notes'] ?? '';
     final identifiers = person['identifiers'];
+    final nicknames = person['nicknames'] as List? ?? [];
+    final inlineTraits = person['traits'] as List? ?? [];
+    final inlineFacts = person['facts'] as List? ?? [];
+    final languages = person['languages'] as List? ?? [];
+    final phone = (person['phone'] ?? '').toString();
+    final pushName = (person['push_name'] ?? '').toString();
+    final msgCount = person['message_count'] as int? ?? 0;
     final metadata = person['metadata'];
     final personFacts = _factsForPerson(personId);
     final personalityDims = _personalityByDimension(personId);
@@ -410,12 +420,7 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
       factsByCategory.putIfAbsent(cat, () => []).add(f);
     }
 
-    final kindColor = switch (kind.toString()) {
-      'self' => HackerTheme.green,
-      'bot' => HackerTheme.cyan,
-      'group' => HackerTheme.amber,
-      _ => HackerTheme.white,
-    };
+    final kindColor = _relationshipColor(relationship, kind.toString());
 
     showModalBottomSheet(
       context: context,
@@ -453,14 +458,21 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
                       children: [
                         Text(name.toString().toUpperCase(), style: HackerTheme.mono(size: 14, color: kindColor)),
                         Row(children: [
-                          if (kind.toString().isNotEmpty) Text(kind.toString(), style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.dimText)),
+                          if (relationship.isNotEmpty) ...[
+                            Text(relationship, style: HackerTheme.monoNoGlow(size: 9, color: kindColor)),
+                            const SizedBox(width: 8),
+                          ] else if (kind.toString().isNotEmpty) ...[
+                            Text(kind.toString(), style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.dimText)),
+                            const SizedBox(width: 8),
+                          ],
+                          if (inlineTraits.isNotEmpty) Text('${inlineTraits.length} traits', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.cyan)),
+                          if (inlineFacts.isNotEmpty) ...[
+                            const SizedBox(width: 8),
+                            Text('${inlineFacts.length} facts', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.amber)),
+                          ],
                           if (personFacts.isNotEmpty) ...[
                             const SizedBox(width: 8),
-                            Text('${personFacts.length} facts', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.grey)),
-                          ],
-                          if (hasPersonality) ...[
-                            const SizedBox(width: 8),
-                            Text('${personalityDims.values.fold<int>(0, (s, l) => s + l.length)} traits', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.cyan)),
+                            Text('+${personFacts.length} db', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.grey)),
                           ],
                         ]),
                       ],
@@ -499,6 +511,112 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
                 controller: scrollCtrl,
                 padding: const EdgeInsets.all(12),
                 children: [
+                  // Identity summary
+                  if (bio.isNotEmpty || fullName.isNotEmpty || relationship.isNotEmpty) ...[
+                    _detailSection('PROFILE'),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(color: HackerTheme.bgCard, border: Border(left: BorderSide(color: kindColor, width: 2))),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (fullName.isNotEmpty)
+                            Text(fullName, style: HackerTheme.monoNoGlow(size: 12, color: HackerTheme.white)),
+                          if (relationship.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 2),
+                              child: Text(relationship.toUpperCase(), style: HackerTheme.monoNoGlow(size: 9, color: kindColor)),
+                            ),
+                          if (bio.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 6),
+                              child: Text(bio, style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.grey)),
+                            ),
+                          if (msgCount > 0 || phone.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 6),
+                              child: Row(children: [
+                                if (phone.isNotEmpty) Text('+$phone', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText)),
+                                if (phone.isNotEmpty && msgCount > 0) const SizedBox(width: 12),
+                                if (msgCount > 0) Text('$msgCount messages tracked', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText)),
+                              ]),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+
+                  // Nicknames & Languages
+                  if (nicknames.isNotEmpty || languages.isNotEmpty) ...[
+                    if (nicknames.isNotEmpty) ...[
+                      _detailSection('ALSO KNOWN AS'),
+                      Wrap(spacing: 6, runSpacing: 4, children: nicknames.map<Widget>((n) =>
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(border: Border.all(color: HackerTheme.borderDim)),
+                          child: Text(n.toString(), style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.white)),
+                        ),
+                      ).toList()),
+                      const SizedBox(height: 8),
+                    ],
+                    if (languages.isNotEmpty) ...[
+                      _detailSection('LANGUAGES'),
+                      Wrap(spacing: 6, children: languages.map<Widget>((l) {
+                        final langName = switch(l.toString()) { 'ms' => 'Malay', 'en' => 'English', 'id' => 'Indonesian', 'zh' => 'Chinese', 'ar' => 'Arabic', _ => l.toString() };
+                        return Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(border: Border.all(color: HackerTheme.cyan.withValues(alpha: 0.3))),
+                          child: Text(langName, style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.cyan)),
+                        );
+                      }).toList()),
+                      const SizedBox(height: 12),
+                    ],
+                  ],
+
+                  // Traits (from people.traits column)
+                  if (inlineTraits.isNotEmpty) ...[
+                    _detailSection('PERSONALITY TRAITS (${inlineTraits.length})'),
+                    Wrap(spacing: 6, runSpacing: 4, children: inlineTraits.map<Widget>((t) =>
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(border: Border.all(color: HackerTheme.green.withValues(alpha: 0.3)), color: HackerTheme.bgCard),
+                        child: Text(t.toString(), style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.green)),
+                      ),
+                    ).toList()),
+                    const SizedBox(height: 12),
+                  ],
+
+                  // Personality profile (from personality table — visual bars)
+                  if (hasPersonality) ...[
+                    _detailSection('PERSONALITY PROFILE'),
+                    ...personalityDims.entries.map((entry) => _buildDimensionCard(entry.key, entry.value)),
+                    const SizedBox(height: 12),
+                  ],
+
+                  // Facts (from people.facts column)
+                  if (inlineFacts.isNotEmpty) ...[
+                    _detailSection('KNOWN FACTS (${inlineFacts.length})'),
+                    ...inlineFacts.map((f) => Padding(
+                      padding: const EdgeInsets.only(bottom: 3),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('> ', style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.amber)),
+                          Expanded(child: Text(f.toString(), style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.white))),
+                        ],
+                      ),
+                    )),
+                    const SizedBox(height: 12),
+                  ],
+
+                  // Facts from facts table (grouped by category)
+                  if (personFacts.isNotEmpty) ...[
+                    _detailSection('STRUCTURED FACTS (${personFacts.length})'),
+                    ...factsByCategory.entries.map((entry) => _buildFactCategory(entry.key, entry.value)),
+                    const SizedBox(height: 12),
+                  ],
+
                   // Identifiers
                   if (identifiers is List && identifiers.isNotEmpty) ...[
                     _detailSection('IDENTIFIERS'),
@@ -511,7 +629,7 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
                         child: Text('$type: $value', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.grey)),
                       );
                     }).toList()),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 12),
                   ],
 
                   // Notes
@@ -521,36 +639,6 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
                       padding: const EdgeInsets.all(8),
                       decoration: HackerTheme.terminalBox(),
                       child: Text(notes.toString(), style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.white)),
-                    ),
-                    const SizedBox(height: 16),
-                  ],
-
-                  // Personality traits (with visual bars)
-                  if (hasPersonality) ...[
-                    _detailSection('PERSONALITY PROFILE'),
-                    ...personalityDims.entries.map((entry) => _buildDimensionCard(entry.key, entry.value)),
-                    const SizedBox(height: 16),
-                  ],
-
-                  // Facts grouped by category
-                  if (personFacts.isNotEmpty) ...[
-                    _detailSection('FACTS (${personFacts.length})'),
-                    ...factsByCategory.entries.map((entry) => _buildFactCategory(entry.key, entry.value)),
-                  ],
-
-                  // Metadata
-                  if (metadata is Map && metadata.isNotEmpty) ...[
-                    const SizedBox(height: 16),
-                    _detailSection('METADATA'),
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      color: HackerTheme.bgCard,
-                      child: Text(
-                        const JsonEncoder.withIndent('  ').convert(metadata),
-                        style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.grey),
-                        maxLines: 20,
-                        overflow: TextOverflow.ellipsis,
-                      ),
                     ),
                   ],
 
