@@ -37,11 +37,22 @@ jobs:
           target: "/home/openclaw/naca-app/"
           strip_components: 0
 
+      - name: Build deploy summary
+        id: summary
+        run: |
+          COMMIT_MSG=$(git log -1 --pretty=format:'%s')
+          COMMIT_AUTHOR=$(git log -1 --pretty=format:'%an')
+          COMMIT_SHA=$(git log -1 --pretty=format:'%h')
+          FILES_CHANGED=$(git diff --name-only HEAD~1 HEAD 2>/dev/null | wc -l | tr -d ' ')
+          CHANGED_AREAS=$(git diff --name-only HEAD~1 HEAD 2>/dev/null | sed 's|/.*||' | sort -u | tr '\n' ', ' | sed 's/,$//')
+          echo "msg=🚀 *NACA Web Deployed*\n\n📝 ${COMMIT_MSG}\n👤 ${COMMIT_AUTHOR} (${COMMIT_SHA})\n📁 ${FILES_CHANGED} files changed (${CHANGED_AREAS})\n⏱️ $(TZ='Asia/Kuala_Lumpur' date '+%H:%M MYT')" >> $GITHUB_OUTPUT
+
       - name: Notify via agent_commands
         if: success()
         run: |
+          DEPLOY_MSG=$(echo '${{ steps.summary.outputs.msg }}' | sed 's/"/\\"/g')
           curl -s -X POST \
             -H "Authorization: Bearer ${{ secrets.NACA_AUTH_TOKEN }}" \
             -H "Content-Type: application/json" \
-            -d '{"to_agent":"siti","command":"send_whatsapp_notification","payload":{"message":"🚀 NACA web deployed successfully from GitHub Actions","to":"60177519610"}}' \
+            -d "{\"from_agent\":\"github-actions\",\"to_agent\":\"siti\",\"command\":\"send_whatsapp_notification\",\"payload\":{\"message\":\"${DEPLOY_MSG}\",\"to\":\"60177519610\"}}" \
             https://naca.neotodak.com/api/agents/commands || true
