@@ -63,7 +63,7 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
       final ppl = await _sb.from('people')
           .select('id, display_name, kind, notes, identifiers, metadata, created_at, phone, lid, push_name, relationship, bio, nicknames, languages, facts, traits')
           .order('updated_at', ascending: false)
-          .limit(50);
+          .limit(200);
       final factsData = await _sb.from('facts')
           .select('id, subject_id, fact, category, confidence, created_at')
           .order('created_at', ascending: false)
@@ -242,23 +242,122 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
   // TAB 2: PEOPLE (with tap-to-expand detail + personality)
   // ══════════════════════════════════════════════════
 
+  String _peopleSearch = '';
+  bool _showAllPeople = false;
+
+  int _personRichness(Map<String, dynamic> p) {
+    int score = 0;
+    if (p['bio'] != null && (p['bio'] as String).isNotEmpty) score += 10;
+    if (p['relationship'] != null && (p['relationship'] as String).isNotEmpty) score += 5;
+    final traits = p['traits'];
+    if (traits is List && traits.isNotEmpty) score += traits.length;
+    final facts = p['facts'];
+    if (facts is List && facts.isNotEmpty) score += facts.length;
+    score += (p['message_count'] as int? ?? 0) ~/ 10;
+    if (_factsForPerson(p['id'] as String? ?? '').isNotEmpty) score += 5;
+    if (_personalityForPerson(p['id'] as String? ?? '').isNotEmpty) score += 10;
+    return score;
+  }
+
+  List<Map<String, dynamic>> get _richPeople {
+    return _people.where((p) => _personRichness(p) >= 5).toList()
+      ..sort((a, b) => _personRichness(b).compareTo(_personRichness(a)));
+  }
+
+  List<Map<String, dynamic>> get _filteredPeople {
+    final source = _showAllPeople ? _people : _richPeople;
+    if (_peopleSearch.isEmpty) return source;
+    final q = _peopleSearch.toLowerCase();
+    return source.where((p) {
+      final name = (p['display_name'] ?? '').toString().toLowerCase();
+      final rel = (p['relationship'] ?? '').toString().toLowerCase();
+      final bio = (p['bio'] ?? '').toString().toLowerCase();
+      final nicknames = (p['nicknames'] as List?)?.join(' ').toLowerCase() ?? '';
+      return name.contains(q) || rel.contains(q) || bio.contains(q) || nicknames.contains(q);
+    }).toList();
+  }
+
   Widget _buildPeopleTab() {
     if (_loadingPeople) return const Center(child: CircularProgressIndicator(color: HackerTheme.green));
     if (_pplError != null) return Center(child: Text('Error: $_pplError', style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.red)));
     if (_people.isEmpty) return Center(child: Text('No people found', style: HackerTheme.monoNoGlow(size: 11, color: HackerTheme.dimText)));
 
-    return RefreshIndicator(
-      color: HackerTheme.green,
-      backgroundColor: HackerTheme.bgCard,
-      onRefresh: _loadPeople,
-      child: ListView.builder(
-        padding: const EdgeInsets.all(12),
-        itemCount: _people.length,
-        itemBuilder: (ctx, i) {
-          final person = _people[i];
-          return _personCard(person, onTap: () => _showPersonDetail(person));
-        },
-      ),
+    final filtered = _filteredPeople;
+
+    return Column(
+      children: [
+        // Search bar
+        Container(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+          child: Container(
+            height: 32,
+            decoration: BoxDecoration(color: HackerTheme.bgCard, border: Border.all(color: HackerTheme.borderDim)),
+            child: TextField(
+              style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.white),
+              decoration: InputDecoration(
+                hintText: 'Search people by name, relationship, bio...',
+                hintStyle: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.dimText),
+                prefixIcon: const Icon(Icons.search, size: 14, color: HackerTheme.dimText),
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                isDense: true,
+              ),
+              onChanged: (v) => setState(() => _peopleSearch = v),
+            ),
+          ),
+        ),
+        // Stats + toggle
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          child: Row(
+            children: [
+              Text(
+                _showAllPeople
+                    ? '${filtered.length} of ${_people.length} people'
+                    : '${filtered.length} profiled of ${_people.length}',
+                style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText),
+              ),
+              const Spacer(),
+              GestureDetector(
+                onTap: () => setState(() => _showAllPeople = !_showAllPeople),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: _showAllPeople ? HackerTheme.amber : HackerTheme.borderDim),
+                  ),
+                  child: Text(
+                    _showAllPeople ? 'PROFILED ONLY' : 'VIEW ALL ${_people.length}',
+                    style: HackerTheme.monoNoGlow(size: 7, color: _showAllPeople ? HackerTheme.amber : HackerTheme.dimText),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: RefreshIndicator(
+            color: HackerTheme.green,
+            backgroundColor: HackerTheme.bgCard,
+            onRefresh: _loadPeople,
+            child: filtered.isEmpty
+                ? ListView(children: [
+                    const SizedBox(height: 80),
+                    Center(child: Text(
+                      _peopleSearch.isNotEmpty ? 'No matches for "$_peopleSearch"' : 'No profiled people yet',
+                      style: HackerTheme.monoNoGlow(size: 11, color: HackerTheme.dimText),
+                    )),
+                  ])
+                : ListView.builder(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    itemCount: filtered.length,
+                    itemBuilder: (ctx, i) {
+                      final person = filtered[i];
+                      return _personCard(person, onTap: () => _showPersonDetail(person));
+                    },
+                  ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -675,61 +774,92 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
     );
   }
 
+  Color _relationshipColor(String? relationship, String? kind) {
+    if (kind == 'self') return HackerTheme.green;
+    if (kind == 'group') return HackerTheme.amber;
+    return switch (relationship?.toLowerCase() ?? '') {
+      'self' => HackerTheme.green,
+      'best friend' => const Color(0xFFFF00FF),
+      'family' => HackerTheme.green,
+      'ex-wife' => const Color(0xFFFF6B6B),
+      'friend' => HackerTheme.amber,
+      'employee' => HackerTheme.cyan,
+      'colleague' => HackerTheme.cyan,
+      'business partner' => HackerTheme.cyan,
+      'client' => HackerTheme.grey,
+      'acquaintance' => HackerTheme.dimText,
+      _ => HackerTheme.white,
+    };
+  }
+
   Widget _personCard(Map<String, dynamic> person, {VoidCallback? onTap}) {
     final name = person['display_name'] ?? 'Unknown';
     final kind = person['kind'] ?? '';
-    final notes = person['notes'] ?? '';
-    final identifiers = person['identifiers'];
+    final relationship = (person['relationship'] ?? '').toString();
+    final bio = (person['bio'] ?? '').toString();
     final personId = person['id'] as String?;
     final personFacts = personId != null ? _factsForPerson(personId) : <Map<String, dynamic>>[];
     final hasTraits = personId != null && _personalityForPerson(personId).isNotEmpty;
+    final traits = person['traits'];
+    final facts = person['facts'];
+    final hasBio = bio.isNotEmpty;
+    final hasInlineTraits = traits is List && traits.isNotEmpty;
+    final hasInlineFacts = facts is List && facts.isNotEmpty;
+    final richness = _personRichness(person);
 
-    final kindColor = switch (kind.toString()) {
-      'self' => HackerTheme.green,
-      'bot' => HackerTheme.cyan,
-      'group' => HackerTheme.amber,
-      _ => HackerTheme.white,
-    };
+    final nodeColor = _relationshipColor(relationship, kind.toString());
+    final relLabel = relationship.isNotEmpty ? relationship : kind.toString();
 
     return GestureDetector(
       onTap: onTap,
       child: Container(
         margin: const EdgeInsets.only(bottom: 6),
         padding: const EdgeInsets.all(10),
-        decoration: HackerTheme.terminalBox(),
+        decoration: BoxDecoration(
+          color: HackerTheme.bgCard,
+          border: Border(left: BorderSide(color: nodeColor, width: 2)),
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(children: [
               Container(
                 width: 8, height: 8,
-                decoration: BoxDecoration(color: kindColor, shape: BoxShape.circle),
+                decoration: BoxDecoration(color: nodeColor, shape: BoxShape.circle,
+                  boxShadow: [BoxShadow(color: nodeColor.withValues(alpha: 0.4), blurRadius: 4)]),
               ),
               const SizedBox(width: 8),
-              Expanded(child: Text(name.toString(), style: HackerTheme.monoNoGlow(size: 12, color: kindColor))),
-              if (kind.toString().isNotEmpty) Container(
+              Expanded(child: Text(name.toString(), style: HackerTheme.monoNoGlow(size: 12, color: nodeColor))),
+              if (relLabel.isNotEmpty) Container(
                 padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                decoration: BoxDecoration(border: Border.all(color: kindColor.withValues(alpha: 0.5))),
-                child: Text(kind.toString().toUpperCase(), style: HackerTheme.monoNoGlow(size: 7, color: kindColor)),
+                decoration: BoxDecoration(border: Border.all(color: nodeColor.withValues(alpha: 0.5))),
+                child: Text(relLabel.toUpperCase(), style: HackerTheme.monoNoGlow(size: 7, color: nodeColor)),
               ),
-              if (hasTraits) ...[
+              if (hasTraits || hasInlineTraits) ...[
                 const SizedBox(width: 6),
                 const Icon(Icons.psychology_outlined, size: 14, color: HackerTheme.cyan),
+              ],
+              if (hasInlineFacts || personFacts.isNotEmpty) ...[
+                const SizedBox(width: 4),
+                Icon(Icons.fact_check_outlined, size: 12, color: HackerTheme.amber.withValues(alpha: 0.7)),
               ],
               const SizedBox(width: 4),
               const Icon(Icons.chevron_right, size: 14, color: HackerTheme.dimText),
             ]),
-            if (identifiers is List && identifiers.isNotEmpty) ...[
+            if (hasBio) ...[
               const SizedBox(height: 4),
-              Wrap(spacing: 8, children: identifiers.take(3).map<Widget>((id) {
-                final type = id is Map ? (id['type'] ?? '') : '';
-                final value = id is Map ? (id['value'] ?? '') : id.toString();
-                return Text('$type:$value', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.grey));
-              }).toList()),
+              Text(bio.length > 100 ? '${bio.substring(0, 100)}...' : bio,
+                style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.grey)),
             ],
-            if (notes.toString().isNotEmpty) ...[
+            if (hasInlineTraits) ...[
               const SizedBox(height: 4),
-              Text(notes.toString(), style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.dimText), maxLines: 2, overflow: TextOverflow.ellipsis),
+              Wrap(spacing: 4, runSpacing: 2, children: (traits as List).take(5).map<Widget>((t) {
+                return Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                  decoration: BoxDecoration(border: Border.all(color: HackerTheme.borderDim)),
+                  child: Text(t.toString(), style: HackerTheme.monoNoGlow(size: 7, color: HackerTheme.dimText)),
+                );
+              }).toList()),
             ],
             // Summary row
             Padding(
