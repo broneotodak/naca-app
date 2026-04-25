@@ -485,19 +485,28 @@ function handleGithubWebhook(req, res) {
           break;
         }
         case 'pull_request': {
-          // Opened / synchronized → reviewer-agent should look at it
+          // Opened / synchronized → reviewer should look at it.
+          // Contract from /home/openclaw/reviewer-agent/index.js:
+          //   to_agent='reviewer' (NOT 'reviewer-agent'), command='review_pr',
+          //   payload requires { project, repo, branch }.
           if (['opened', 'synchronize', 'reopened', 'ready_for_review'].includes(payload.action)) {
+            const project = repo.split('/').pop() || repo;     // 'broneotodak/naca-app' → 'naca-app'
+            const branch = payload.pull_request?.head?.ref;     // PR head branch name (the actual ref)
             commands.push({
               from_agent: 'github-actions',
-              to_agent: 'reviewer-agent',
+              to_agent: 'reviewer',
               command: 'review_pr',
               payload: {
-                repo, pr_number: payload.pull_request?.number,
+                project,
+                repo,
+                branch,
+                pr_number: payload.pull_request?.number,
                 pr_title: payload.pull_request?.title,
                 pr_url: payload.pull_request?.html_url,
                 head_sha: payload.pull_request?.head?.sha,
                 base: payload.pull_request?.base?.ref,
                 action: payload.action,
+                reporter: payload.pull_request?.user?.login,
               },
               priority: 3,
             });
