@@ -41,6 +41,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // + agent_intents authored by supervisor). Last 7 days, capped at 30 entries.
   List<Map<String, dynamic>> _incidents = [];
 
+  // PRs awaiting Neo's WhatsApp decision (from reviewer-agent → Siti pipeline).
+  // Read-only display: actions live in Neo's WA chat with Siti, not here.
+  List<Map<String, dynamic>> _pendingPrs = [];
+
   // Expanded command IDs (for detail view)
   final Set<String> _expandedCmds = {};
 
@@ -72,7 +76,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _loadAll() async {
     try {
-      await Future.wait([_loadAgentData(), _checkServices(), _loadCosts(), _loadIntents(), _loadKumaStatus(), _loadIncidents()]);
+      await Future.wait([_loadAgentData(), _checkServices(), _loadCosts(), _loadIntents(), _loadKumaStatus(), _loadIncidents(), _loadPendingPrs()]);
       if (mounted) setState(() { _loading = false; _error = null; _lastRefresh = DateTime.now(); });
     } catch (e) {
       if (mounted) setState(() { _error = e.toString(); _loading = false; });
@@ -133,6 +137,40 @@ class _DashboardScreenState extends State<DashboardScreen> {
     } catch (_) {
       // keep last known
     }
+  }
+
+  /// Pull PR-awaiting-decision rows that haven't been settled yet. Settlement
+  /// is detected by the existence of a sibling `pr-decision-recorded` row with
+  /// the same pr_url (written by the dispatcher on CLAW). We do this in two
+  /// queries since PostgREST doesn't easily express the "exists join".
+  Future<void> _loadPendingPrs() async {
+    try {
+      final cutoff = DateTime.now().subtract(const Duration(hours: 24)).toUtc().toIso8601String();
+      final awaiting = await _sb.from('memories')
+          .select('content,metadata,created_at')
+          .eq('category', 'pr-awaiting-decision')
+          .gte('created_at', cutoff)
+          .order('created_at', ascending: false)
+          .limit(20);
+      final settled = await _sb.from('memories')
+          .select('metadata')
+          .eq('category', 'pr-decision-recorded')
+          .gte('created_at', cutoff);
+      final settledUrls = <String>{};
+      for (final r in settled) {
+        final url = (r['metadata'] as Map?)?['pr_url']?.toString();
+        if (url != null) settledUrls.add(url);
+      }
+      final pending = <Map<String, dynamic>>[];
+      for (final r in awaiting) {
+        final meta = r['metadata'] as Map<String, dynamic>? ?? {};
+        final url = meta['pr_url']?.toString();
+        if (url != null && !settledUrls.contains(url)) {
+          pending.add({...meta, 'awaiting_at': r['created_at']});
+        }
+      }
+      if (mounted) _pendingPrs = pending;
+    } catch (_) {/* keep last */}
   }
 
   /// Operator-triggered investigation. Writes an agent_intent so planner-agent
@@ -581,6 +619,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
         if (_agents.isEmpty) _emptyState('No agents reporting'),
         const SizedBox(height: 16),
 
+        // Pending PR decisions — read-only. Approve/Reject/Hold via WhatsApp chat with Siti.
+        if (_pendingPrs.isNotEmpty) ...[
+          _section('PRs · AWAITING YOUR WHATSAPP REPLY'),
+          ..._pendingPrs.map(_buildPendingPrRow),
+          Padding(
+            padding: const EdgeInsets.only(top: 6, left: 4),
+            child: Text('// reply to Siti on WhatsApp:  approve  /  reject  /  hold',
+              style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.dimText)),
+          ),
+          const SizedBox(height: 16),
+        ],
+
         // Supervisor activity / recovery timeline
         if (_incidents.isNotEmpty) ...[
           _section('SUPERVISOR · INCIDENT TIMELINE'),
@@ -1012,6 +1062,75 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ],
       ),
     );
+  }
+
+  /// Render one pending PR row. Read-only — actions belong in WhatsApp.
+  Widget _buildPendingPrRow(Map<String, dynamic> pr) {
+    final repo = pr['repo']?.toString() ?? '?';
+    final num_ = pr['pr_number']?.toString();
+    final title = pr['pr_title']?.toString() ?? '(no title)';
+    final verdict = pr['reviewer_verdict']?.toString() ?? 'comment';
+    final url = pr['pr_url']?.toString();
+    final reporter = pr['opened_by']?.toString();
+    final summary = pr['reviewer_summary']?.toString() ?? '';
+    final at = pr['awaiting_at'] as String?;
+
+    final verdictColor = verdict == 'approve' ? HackerTheme.green
+        : verdict == 'request-changes' ? HackerTheme.red
+        : HackerTheme.amber;
+    final verdictIcon = verdict == 'approve' ? '✅' : verdict == 'request-changes' ? '❌' : '💬';
+
+    return GestureDetector(
+      onTap: url == null ? null : () => _openUrl(url),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: HackerTheme.bgCard,
+          border: Border(left: BorderSide(color: HackerTheme.amber, width: 3)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.merge_type, size: 14, color: HackerTheme.amber),
+                const SizedBox(width: 6),
+                Text('${repo}${num_ != null ? '#$num_' : ''}', style: HackerTheme.monoNoGlow(size: 11, color: HackerTheme.white)),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                  decoration: BoxDecoration(border: Border.all(color: verdictColor.withValues(alpha: 0.5))),
+                  child: Text('$verdictIcon $verdict', style: HackerTheme.monoNoGlow(size: 8, color: verdictColor)),
+                ),
+                const Spacer(),
+                if (at != null) Text(_timeAgo(DateTime.parse(at)), style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.grey)),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(title, maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.cyan)),
+            if (summary.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(summary, maxLines: 2, overflow: TextOverflow.ellipsis,
+                  style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.grey)),
+              ),
+            if (reporter != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text('opened by $reporter', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText)),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openUrl(String url) async {
+    // Stub — copy URL to clipboard via snack until url_launcher is wired.
+    // PR actions belong in WhatsApp anyway; this is just for "see the diff".
+    _showSnack('PR URL: $url');
   }
 
   /// Render one incident from supervisor activity (memory or agent_intent).
