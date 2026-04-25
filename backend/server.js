@@ -30,6 +30,12 @@ const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
+  // GitHub webhook bypasses Bearer auth — it uses HMAC SHA-256 signature.
+  // Must be checked BEFORE Bearer auth, because GitHub sends X-Hub-Signature-256, not Authorization.
+  if (req.url === '/api/webhooks/github' && req.method === 'POST') {
+    return handleGithubWebhook(req, res);
+  }
+
   const auth = req.headers.authorization;
   if (auth !== `Bearer ${AUTH_TOKEN}`) {
     res.writeHead(401, { 'Content-Type': 'application/json' });
@@ -423,6 +429,154 @@ const server = http.createServer(async (req, res) => {
 
   json(res, { error: 'not found' }, 404);
 });
+
+// ════════════════════════════════════════════════════════════════════
+// GITHUB WEBHOOK RELAY (Phase 2 C)
+//
+// GitHub POSTs events here → we verify HMAC, classify by event type,
+// and write rows into agent_commands so the relevant agent (reviewer,
+// dev-agent, planner) can pick them up. Phase 3 wires the consumers.
+//
+// Setup on each repo (one-time, via gh CLI or GitHub UI):
+//   gh api -X POST /repos/{owner}/{repo}/hooks \
+//     -f name=web -F active=true -f events[]=push -f events[]=pull_request \
+//     -f events[]=check_suite -f events[]=issue_comment \
+//     -f config[url]=https://naca.neotodak.com/api/webhooks/github \
+//     -f config[content_type]=json -f config[secret]=$GITHUB_WEBHOOK_SECRET
+// ════════════════════════════════════════════════════════════════════
+function handleGithubWebhook(req, res) {
+  const secret = process.env.GITHUB_WEBHOOK_SECRET;
+  if (!secret) { res.writeHead(503, { 'Content-Type': 'application/json' }); res.end('{"error":"webhook secret not configured"}'); return; }
+
+  const sig = req.headers['x-hub-signature-256'];
+  const event = req.headers['x-github-event'];
+  const deliveryId = req.headers['x-github-delivery'];
+  if (!sig || !event) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end('{"error":"missing GitHub headers"}'); return; }
+
+  // Read raw body for signature verification (must be exact bytes GitHub signed)
+  let raw = '';
+  req.on('data', c => raw += c);
+  req.on('end', async () => {
+    try {
+      const expected = 'sha256=' + crypto.createHmac('sha256', secret).update(raw).digest('hex');
+      const valid = sig.length === expected.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
+      if (!valid) { res.writeHead(401, { 'Content-Type': 'application/json' }); res.end('{"error":"signature mismatch"}'); return; }
+
+      let payload;
+      try { payload = JSON.parse(raw); } catch { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end('{"error":"bad json"}'); return; }
+
+      const repo = payload.repository?.full_name || 'unknown';
+      const commands = []; // collect what to insert
+
+      // ── event mappings (Phase 2 baseline; Phase 3 will tune routing) ──
+      switch (event) {
+        case 'push': {
+          // Push to main on a deploy-tracked repo → notify deploy worker
+          const branch = (payload.ref || '').replace('refs/heads/', '');
+          if (branch === 'main' || branch === 'master') {
+            commands.push({
+              from_agent: 'github-actions',
+              to_agent: 'dev-agent',
+              command: 'on_main_push',
+              payload: { repo, branch, commits: payload.commits?.length || 0, head_commit: payload.head_commit?.id, message: payload.head_commit?.message },
+              priority: 4,
+            });
+          }
+          break;
+        }
+        case 'pull_request': {
+          // Opened / synchronized → reviewer-agent should look at it
+          if (['opened', 'synchronize', 'reopened', 'ready_for_review'].includes(payload.action)) {
+            commands.push({
+              from_agent: 'github-actions',
+              to_agent: 'reviewer-agent',
+              command: 'review_pr',
+              payload: {
+                repo, pr_number: payload.pull_request?.number,
+                pr_title: payload.pull_request?.title,
+                pr_url: payload.pull_request?.html_url,
+                head_sha: payload.pull_request?.head?.sha,
+                base: payload.pull_request?.base?.ref,
+                action: payload.action,
+              },
+              priority: 3,
+            });
+          }
+          // Closed/merged → notify dev-agent (deploy hook)
+          if (payload.action === 'closed' && payload.pull_request?.merged) {
+            commands.push({
+              from_agent: 'github-actions',
+              to_agent: 'dev-agent',
+              command: 'on_pr_merged',
+              payload: { repo, pr_number: payload.pull_request.number, pr_title: payload.pull_request.title, merged_by: payload.pull_request.merged_by?.login },
+              priority: 4,
+            });
+          }
+          break;
+        }
+        case 'check_suite': {
+          if (payload.action === 'completed' && payload.check_suite?.conclusion === 'failure') {
+            commands.push({
+              from_agent: 'github-actions',
+              to_agent: 'planner-agent',
+              command: 'investigate_check_failure',
+              payload: { repo, head_sha: payload.check_suite.head_sha, branch: payload.check_suite.head_branch, app: payload.check_suite.app?.slug },
+              priority: 5,
+            });
+          }
+          break;
+        }
+        case 'issue_comment': {
+          // Comments mentioning @dev-agent or @planner-agent
+          const body = payload.comment?.body || '';
+          for (const target of ['dev-agent', 'planner-agent', 'reviewer-agent', 'siti']) {
+            if (body.includes('@' + target)) {
+              commands.push({
+                from_agent: 'github-actions',
+                to_agent: target,
+                command: 'github_mention',
+                payload: { repo, issue_number: payload.issue?.number, comment_url: payload.comment?.html_url, body, author: payload.comment?.user?.login },
+                priority: 3,
+              });
+            }
+          }
+          break;
+        }
+        case 'ping': {
+          // GitHub's setup ping — just acknowledge.
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, event: 'ping', delivery: deliveryId }));
+          return;
+        }
+        default: {
+          // Unhandled event — accept but record nothing
+          console.log(`[github-webhook] unhandled event '${event}' from ${repo} (delivery ${deliveryId})`);
+        }
+      }
+
+      // Insert all queued commands in one shot via Supabase REST
+      let inserted = 0;
+      if (commands.length && supabase) {
+        const { data, error } = await supabase.from('agent_commands').insert(commands).select('id');
+        if (error) {
+          console.error('[github-webhook] insert failed:', error.message);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: error.message }));
+          return;
+        }
+        inserted = data?.length || 0;
+      }
+
+      console.log(`[github-webhook] ${event}/${payload.action || '-'} from ${repo} → queued ${inserted} command(s)`);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, event, action: payload.action || null, repo, queued: inserted, delivery: deliveryId }));
+    } catch (e) {
+      console.error('[github-webhook] error:', e.message);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+  });
+}
 
 const wss = new WebSocketServer({ server });
 
