@@ -838,6 +838,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       if (meta['model'] != null) Text(meta['model'].toString(), style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.cyan)),
                       if (meta['uptime_s'] != null) Text('up ${_formatUptime(meta['uptime_s'])}', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.grey)),
                     ]),
+                    // Port-status badges (claw-heartbeat self-reports listening ports)
+                    if (meta['ports'] is Map && (meta['ports'] as Map).isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Wrap(
+                        spacing: 4, runSpacing: 4,
+                        children: [
+                          for (final e in (meta['ports'] as Map).entries)
+                            _buildPortBadge(e.key.toString(), e.value == true),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -859,6 +870,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
             ],
           ),
+        ],
+      ),
+    );
+  }
+
+  /// Render one port-status badge from agent_heartbeats.meta.ports.
+  /// Key format: "bridge_3899" → label "bridge:3899". `isUp` colors it green/red.
+  /// Drops the need for external Tailnet probes that can't reach loopback-only services.
+  Widget _buildPortBadge(String rawKey, bool isUp) {
+    final idx = rawKey.lastIndexOf('_');
+    final label = (idx > 0 && idx < rawKey.length - 1)
+        ? '${rawKey.substring(0, idx)}:${rawKey.substring(idx + 1)}'
+        : rawKey;
+    final color = isUp ? HackerTheme.green : HackerTheme.red;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(border: Border.all(color: color.withValues(alpha: 0.5))),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(isUp ? '●' : '○', style: TextStyle(color: color, fontSize: 9, height: 1.0)),
+          const SizedBox(width: 4),
+          Text(label, style: HackerTheme.monoNoGlow(size: 8, color: color)),
         ],
       ),
     );
