@@ -37,6 +37,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // Uptime Kuma fleet status (grouped monitors)
   Map<String, dynamic>? _kuma; // { groups: [...], counts: {up,down,...}, lastUpdated, statusPageUrl }
 
+  // Supervisor incidents (memories of category supervisor / supervisor-observation
+  // + agent_intents authored by supervisor). Last 7 days, capped at 30 entries.
+  List<Map<String, dynamic>> _incidents = [];
+
   // Expanded command IDs (for detail view)
   final Set<String> _expandedCmds = {};
 
@@ -68,11 +72,132 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _loadAll() async {
     try {
-      await Future.wait([_loadAgentData(), _checkServices(), _loadCosts(), _loadIntents(), _loadKumaStatus()]);
+      await Future.wait([_loadAgentData(), _checkServices(), _loadCosts(), _loadIntents(), _loadKumaStatus(), _loadIncidents()]);
       if (mounted) setState(() { _loading = false; _error = null; _lastRefresh = DateTime.now(); });
     } catch (e) {
       if (mounted) setState(() { _error = e.toString(); _loading = false; });
     }
+  }
+
+  /// Pull supervisor activity for the timeline:
+  /// 1) memories with source=supervisor (T1 stubs + dry-run observations)
+  /// 2) agent_intents authored by supervisor (T2 escalations)
+  Future<void> _loadIncidents() async {
+    try {
+      final cutoff = DateTime.now().subtract(const Duration(days: 7)).toUtc().toIso8601String();
+      final memRows = await _sb.from('memories')
+          .select('content,memory_type,category,metadata,created_at')
+          .eq('source', 'supervisor')
+          .gte('created_at', cutoff)
+          .order('created_at', ascending: false)
+          .limit(20);
+      final intentRows = await _sb.from('agent_intents')
+          .select('id,raw_text,source_ref,status,created_at,plan,error')
+          .eq('source', 'supervisor')
+          .gte('created_at', cutoff)
+          .order('created_at', ascending: false)
+          .limit(20);
+
+      final unified = <Map<String, dynamic>>[];
+      for (final r in memRows) {
+        final meta = r['metadata'] as Map<String, dynamic>? ?? {};
+        unified.add({
+          'kind': r['category'] == 'supervisor-observation' ? 'observation' : 'incident',
+          'tier': meta['tier'],
+          'agent': meta['agent'],
+          'symptom': meta['symptom'],
+          'detail': meta['detail'] ?? r['content'],
+          'created_at': r['created_at'],
+          'source': 'memory',
+        });
+      }
+      for (final r in intentRows) {
+        // source_ref encoded as "agent:X|symptom:Y|tier:Z|run:..."
+        final parts = (r['source_ref'] as String? ?? '').split('|');
+        final kv = <String, String>{};
+        for (final p in parts) { final i = p.indexOf(':'); if (i > 0) kv[p.substring(0, i)] = p.substring(i + 1); }
+        unified.add({
+          'kind': 'intent',
+          'tier': int.tryParse(kv['tier'] ?? '2') ?? 2,
+          'agent': kv['agent'],
+          'symptom': kv['symptom'],
+          'detail': r['raw_text'],
+          'created_at': r['created_at'],
+          'source': 'intent',
+          'intent_id': r['id'],
+          'intent_status': r['status'],
+        });
+      }
+      unified.sort((a, b) => (b['created_at'] as String).compareTo(a['created_at'] as String));
+      if (mounted) _incidents = unified.take(30).toList();
+    } catch (_) {
+      // keep last known
+    }
+  }
+
+  /// Operator-triggered investigation. Writes an agent_intent so planner-agent
+  /// decomposes it the same way supervisor's T2 escalations do.
+  Future<void> _investigateAgent(String agentName) async {
+    final reasonCtrl = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: HackerTheme.bgPanel,
+        shape: const RoundedRectangleBorder(side: BorderSide(color: HackerTheme.amber)),
+        title: Row(children: [
+          const Icon(Icons.search, color: HackerTheme.amber, size: 18),
+          const SizedBox(width: 8),
+          Text('INVESTIGATE ${agentName.toUpperCase()}', style: HackerTheme.mono(size: 13, color: HackerTheme.amber)),
+        ]),
+        content: SizedBox(
+          width: 380,
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Why? Planner-agent will decompose this into commands for the right agents.',
+              style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.dimText)),
+            const SizedBox(height: 10),
+            TextField(
+              controller: reasonCtrl,
+              style: HackerTheme.monoNoGlow(size: 11, color: HackerTheme.white),
+              decoration: InputDecoration(
+                hintText: 'e.g. "memory keeps growing", "stuck on a command", "no recent activity"',
+                hintStyle: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.dimText),
+                enabledBorder: const OutlineInputBorder(borderSide: BorderSide(color: HackerTheme.borderDim)),
+                focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: HackerTheme.amber)),
+              ),
+              maxLines: 3, minLines: 2, autofocus: true,
+            ),
+          ]),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(),
+            child: Text('CANCEL', style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.dimText))),
+          TextButton(
+            onPressed: () async {
+              final reason = reasonCtrl.text.trim();
+              if (reason.isEmpty) return;
+              Navigator.of(ctx).pop();
+              try {
+                await _sb.from('agent_intents').insert({
+                  'source': 'naca-dashboard-recovery',
+                  'source_ref': 'agent:$agentName|symptom:operator_request|tier:2|run:manual-${DateTime.now().millisecondsSinceEpoch.toRadixString(36)}',
+                  'raw_text': "Operator-triggered investigation of '$agentName': $reason. Investigate root cause, propose a fix, open a PR if code change is needed.",
+                  'reporter': 'Neo (NACA recovery panel)',
+                  'status': 'pending',
+                });
+                SoundService.instance.playAcknowledged();
+                _showSnack('Investigation queued → planner-agent');
+                _loadAll();
+              } catch (e) { _showSnack('Failed: $e', error: true); }
+            },
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              const Icon(Icons.search, size: 14, color: HackerTheme.amber),
+              const SizedBox(width: 4),
+              Text('INVESTIGATE', style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.amber)),
+            ]),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _loadKumaStatus() async {
@@ -455,6 +580,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ..._agents.map(_buildAgentCard),
         if (_agents.isEmpty) _emptyState('No agents reporting'),
         const SizedBox(height: 16),
+
+        // Supervisor activity / recovery timeline
+        if (_incidents.isNotEmpty) ...[
+          _section('SUPERVISOR · INCIDENT TIMELINE'),
+          ..._incidents.take(10).map(_buildIncidentRow),
+          if (_incidents.length > 10)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text('+ ${_incidents.length - 10} more in last 7 days', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.dimText)),
+            ),
+          const SizedBox(height: 16),
+        ],
 
         // Tools Arsenal
         _section('TOOLS ARSENAL'),
@@ -863,6 +1000,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     children: [
                       _agentAction(Icons.wifi_tethering, 'PING', HackerTheme.cyan, () => _pingAgent(name.toString())),
                       const SizedBox(width: 4),
+                      _agentAction(Icons.search, 'INVESTIGATE', HackerTheme.amber, () => _investigateAgent(name.toString())),
+                      const SizedBox(width: 4),
                       if (!isOffline) _agentAction(Icons.restart_alt, 'CMD', HackerTheme.amber, () => _showCommandDialog(name.toString())),
                     ],
                   ),
@@ -870,6 +1009,71 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
             ],
           ),
+        ],
+      ),
+    );
+  }
+
+  /// Render one incident from supervisor activity (memory or agent_intent).
+  Widget _buildIncidentRow(Map<String, dynamic> inc) {
+    final tier = (inc['tier'] is int) ? inc['tier'] as int : int.tryParse(inc['tier']?.toString() ?? '');
+    final agent = inc['agent']?.toString() ?? '?';
+    final symptom = inc['symptom']?.toString() ?? '?';
+    final detail = inc['detail']?.toString() ?? '';
+    final kind = inc['kind']?.toString() ?? 'observation';
+    final createdAt = inc['created_at'] as String?;
+    final intentStatus = inc['intent_status']?.toString();
+
+    final tierColor = tier == 3 ? HackerTheme.red
+        : tier == 2 ? HackerTheme.amber
+        : tier == 1 ? HackerTheme.cyan
+        : HackerTheme.dimText;
+    final tierLabel = tier != null ? 'T$tier' : '·';
+
+    final kindBadge = kind == 'observation' ? 'DRY' : kind == 'incident' ? 'STUB' : 'INTENT';
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 4),
+      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 10),
+      decoration: BoxDecoration(
+        color: HackerTheme.bgCard,
+        border: Border(left: BorderSide(color: tierColor, width: 2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+              decoration: BoxDecoration(border: Border.all(color: tierColor.withValues(alpha: 0.4))),
+              child: Text(tierLabel, style: HackerTheme.monoNoGlow(size: 8, color: tierColor)),
+            ),
+            const SizedBox(width: 4),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+              decoration: BoxDecoration(border: Border.all(color: HackerTheme.dimText.withValues(alpha: 0.4))),
+              child: Text(kindBadge, style: HackerTheme.monoNoGlow(size: 7, color: HackerTheme.dimText)),
+            ),
+            const SizedBox(width: 6),
+            Text(agent.toUpperCase(), style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.white)),
+            const SizedBox(width: 6),
+            Expanded(child: Text(symptom, style: HackerTheme.monoNoGlow(size: 9, color: tierColor), overflow: TextOverflow.ellipsis)),
+            if (intentStatus != null)
+              Padding(
+                padding: const EdgeInsets.only(left: 4),
+                child: Text(intentStatus, style: HackerTheme.monoNoGlow(size: 8, color: intentStatus == 'decomposed' ? HackerTheme.green : HackerTheme.dimText)),
+              ),
+            if (createdAt != null) ...[
+              const SizedBox(width: 6),
+              Text(_timeAgo(DateTime.parse(createdAt)), style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.grey)),
+            ],
+          ]),
+          if (detail.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(detail, maxLines: 2, overflow: TextOverflow.ellipsis,
+                style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.grey)),
+            ),
         ],
       ),
     );
