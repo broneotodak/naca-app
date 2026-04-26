@@ -1,4 +1,4 @@
-name: Build & Deploy NACA Web
+name: Build & Deploy NACA
 
 on:
   push:
@@ -7,6 +7,7 @@ on:
       - 'lib/**'
       - 'web/**'
       - 'pubspec.*'
+      - 'backend/**'
       - '.github/workflows/deploy.yml'
 
 jobs:
@@ -14,20 +15,38 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Need history so we can diff HEAD~1 to detect what changed
+          fetch-depth: 2
 
+      - name: Detect changed areas
+        id: changes
+        run: |
+          CHANGED=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || git ls-files)
+          echo "$CHANGED" | grep -qE '^(lib/|web/|pubspec\.)' && WEB=1 || WEB=0
+          echo "$CHANGED" | grep -qE '^backend/' && BACKEND=1 || BACKEND=0
+          echo "web=$WEB" >> $GITHUB_OUTPUT
+          echo "backend=$BACKEND" >> $GITHUB_OUTPUT
+          echo "Changes — web:$WEB backend:$BACKEND"
+
+      # ─── WEB ────────────────────────────────────────────────────────
       - uses: subosito/flutter-action@v2
+        if: steps.changes.outputs.web == '1'
         with:
           flutter-version: '3.41.7'
           channel: stable
           cache: true
 
-      - name: Install dependencies
+      - name: Install Flutter dependencies
+        if: steps.changes.outputs.web == '1'
         run: flutter pub get
 
       - name: Build web
+        if: steps.changes.outputs.web == '1'
         run: flutter build web --release
 
-      - name: Deploy to VPS
+      - name: Deploy web to VPS
+        if: steps.changes.outputs.web == '1'
         uses: appleboy/scp-action@v0.1.7
         with:
           host: 178.156.241.204
@@ -37,6 +56,33 @@ jobs:
           target: "/home/openclaw/naca-app/"
           strip_components: 0
 
+      # ─── BACKEND ────────────────────────────────────────────────────
+      - name: Deploy backend (pull + npm i if needed + pm2 restart)
+        if: steps.changes.outputs.backend == '1'
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 178.156.241.204
+          username: openclaw
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+            cd /home/openclaw/naca-app
+            BEFORE=$(git rev-parse HEAD)
+            git fetch --quiet origin main
+            git reset --hard origin/main
+            AFTER=$(git rev-parse HEAD)
+            echo "Updated $BEFORE -> $AFTER"
+            # Re-install backend deps only if backend/package* actually changed
+            if git diff --name-only $BEFORE $AFTER | grep -qE '^backend/package'; then
+              echo "package.json changed — running npm install"
+              cd backend && npm install --omit=dev --no-audit --no-fund
+              cd ..
+            fi
+            pm2 restart naca-backend
+            sleep 2
+            pm2 describe naca-backend | grep -E 'status|restarts' | head -5
+
+      # ─── NOTIFICATION ───────────────────────────────────────────────
       - name: Build deploy summary
         id: summary
         run: |
@@ -45,7 +91,14 @@ jobs:
           COMMIT_SHA=$(git log -1 --pretty=format:'%h')
           FILES_CHANGED=$(git diff --name-only HEAD~1 HEAD 2>/dev/null | wc -l | tr -d ' ')
           CHANGED_AREAS=$(git diff --name-only HEAD~1 HEAD 2>/dev/null | sed 's|/.*||' | sort -u | tr '\n' ', ' | sed 's/,$//')
-          echo "msg=🚀 *NACA Web Deployed*\n\n📝 ${COMMIT_MSG}\n👤 ${COMMIT_AUTHOR} (${COMMIT_SHA})\n📁 ${FILES_CHANGED} files changed (${CHANGED_AREAS})\n⏱️ $(TZ='Asia/Kuala_Lumpur' date '+%H:%M MYT')" >> $GITHUB_OUTPUT
+          # Build a tag indicating what shipped (web / backend / both)
+          WEB="${{ steps.changes.outputs.web }}"
+          BACKEND="${{ steps.changes.outputs.backend }}"
+          if [ "$WEB" = "1" ] && [ "$BACKEND" = "1" ]; then SCOPE="Web + Backend"
+          elif [ "$WEB" = "1" ]; then SCOPE="Web"
+          elif [ "$BACKEND" = "1" ]; then SCOPE="Backend"
+          else SCOPE="No-op"; fi
+          echo "msg=🚀 *NACA ${SCOPE} Deployed*\n\n📝 ${COMMIT_MSG}\n👤 ${COMMIT_AUTHOR} (${COMMIT_SHA})\n📁 ${FILES_CHANGED} files changed (${CHANGED_AREAS})\n⏱️ $(TZ='Asia/Kuala_Lumpur' date '+%H:%M MYT')" >> $GITHUB_OUTPUT
 
       - name: Notify via agent_commands
         if: success()

@@ -1,3 +1,5 @@
+// Backend changes auto-deploy via .github/workflows/deploy.yml — pushes to
+// main fast-forward this checkout on the VPS and `pm2 restart naca-backend`.
 require('dotenv').config();
 const http = require('http');
 const fs = require('fs');
