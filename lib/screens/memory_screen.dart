@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../config.dart';
 import '../theme.dart';
 
@@ -31,10 +32,25 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
   String? _memError;
   String? _pplError;
 
+  // MEDIA tab state
+  List<Map<String, dynamic>> _media = [];
+  bool _loadingMedia = false;
+  String? _mediaError;
+  String _mediaKind = 'all'; // all|image|audio|video
+  String _mediaMode = 'browse'; // browse|search
+  final _mediaSearchCtrl = TextEditingController();
+  bool _mediaLoadedOnce = false;
+
   @override
   void initState() {
     super.initState();
-    _tabCtrl = TabController(length: 3, vsync: this);
+    _tabCtrl = TabController(length: 4, vsync: this);
+    _tabCtrl.addListener(() {
+      if (_tabCtrl.index == 3 && !_mediaLoadedOnce) {
+        _mediaLoadedOnce = true;
+        _loadMedia();
+      }
+    });
     _loadMemories();
     _loadPeople();
   }
@@ -43,6 +59,7 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
   void dispose() {
     _tabCtrl.dispose();
     _searchCtrl.dispose();
+    _mediaSearchCtrl.dispose();
     super.dispose();
   }
 
@@ -147,6 +164,7 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
               Tab(text: 'MEMORIES'),
               Tab(text: 'PEOPLE'),
               Tab(text: 'SEARCH'),
+              Tab(text: 'MEDIA'),
             ],
           ),
           Expanded(
@@ -156,6 +174,7 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
                 _buildMemoriesTab(),
                 _buildPeopleTab(),
                 _buildSearchTab(),
+                _buildMediaTab(),
               ],
             ),
           ),
@@ -182,6 +201,10 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
         Text('${_facts.length} facts', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.grey)),
         const SizedBox(width: 8),
         Text('${_personality.length} traits', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.cyan)),
+        if (_mediaLoadedOnce) ...[
+          const SizedBox(width: 8),
+          Text('${_media.length} media', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.amber)),
+        ],
       ]),
     );
   }
@@ -1284,4 +1307,364 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
   }
   List<String> _splitCsv(String s) => s.split(',').map((x) => x.trim()).where((x) => x.isNotEmpty).toList();
   List<String> _splitLines(String s) => s.split('\n').map((x) => x.trim()).where((x) => x.isNotEmpty).toList();
+
+  // ══════════════════════════════════════════════════
+  // TAB 4: MEDIA — backed by /api/siti/api/media
+  // ══════════════════════════════════════════════════
+
+  Future<void> _loadMedia() async {
+    if (mounted) setState(() { _loadingMedia = true; _mediaError = null; });
+    try {
+      final params = <String, String>{'limit': '60'};
+      if (_mediaKind != 'all') params['kind'] = _mediaKind;
+      final q = _mediaSearchCtrl.text.trim();
+      if (q.isNotEmpty) params['q'] = q;
+      final uri = Uri.parse('${AppConfig.apiBaseUrl}/api/siti/api/media').replace(queryParameters: params);
+      final res = await http.get(uri, headers: {
+        'Authorization': 'Bearer ${AppConfig.authToken}',
+      }).timeout(const Duration(seconds: 25));
+      if (res.statusCode >= 400) {
+        String msg = 'HTTP ${res.statusCode}';
+        try { final j = jsonDecode(res.body); if (j is Map && j['error'] != null) msg = j['error'].toString(); } catch (_) {}
+        if (mounted) setState(() { _loadingMedia = false; _mediaError = msg; });
+        return;
+      }
+      final body = jsonDecode(res.body) as Map<String, dynamic>;
+      if (mounted) setState(() {
+        _media = List<Map<String, dynamic>>.from(body['media'] ?? const []);
+        _mediaMode = body['mode']?.toString() ?? 'browse';
+        _loadingMedia = false;
+      });
+    } catch (e) {
+      if (mounted) setState(() { _loadingMedia = false; _mediaError = e.toString(); });
+    }
+  }
+
+  Widget _buildMediaTab() {
+    return Column(
+      children: [
+        // Search bar
+        Container(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+          child: Container(
+            height: 32,
+            decoration: BoxDecoration(color: HackerTheme.bgCard, border: Border.all(color: HackerTheme.borderDim)),
+            child: TextField(
+              controller: _mediaSearchCtrl,
+              style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.white),
+              decoration: InputDecoration(
+                hintText: 'Semantic search transcripts & captions...',
+                hintStyle: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.dimText),
+                prefixIcon: const Icon(Icons.search, size: 14, color: HackerTheme.dimText),
+                suffixIcon: _mediaSearchCtrl.text.isEmpty
+                    ? null
+                    : GestureDetector(
+                        onTap: () { _mediaSearchCtrl.clear(); _loadMedia(); },
+                        child: const Icon(Icons.close, size: 14, color: HackerTheme.dimText),
+                      ),
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                isDense: true,
+              ),
+              onSubmitted: (_) => _loadMedia(),
+            ),
+          ),
+        ),
+        // Kind filter chips
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          child: Row(
+            children: [
+              for (final k in const ['all', 'image', 'audio', 'video']) ...[
+                _kindChip(k),
+                const SizedBox(width: 6),
+              ],
+              const Spacer(),
+              if (_mediaMode == 'search')
+                Text('SEMANTIC', style: HackerTheme.monoNoGlow(size: 7, color: HackerTheme.cyan))
+              else
+                Text('${_media.length} items', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText)),
+            ],
+          ),
+        ),
+        Expanded(child: _buildMediaList()),
+      ],
+    );
+  }
+
+  Widget _kindChip(String kind) {
+    final selected = _mediaKind == kind;
+    final color = selected ? HackerTheme.amber : HackerTheme.dimText;
+    return GestureDetector(
+      onTap: () {
+        if (_mediaKind == kind) return;
+        setState(() => _mediaKind = kind);
+        _loadMedia();
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(border: Border.all(color: color)),
+        child: Text(kind.toUpperCase(), style: HackerTheme.monoNoGlow(size: 8, color: color)),
+      ),
+    );
+  }
+
+  Widget _buildMediaList() {
+    if (_loadingMedia) return const Center(child: CircularProgressIndicator(color: HackerTheme.green));
+    if (_mediaError != null) {
+      return Center(child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text('media error', style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.red)),
+          const SizedBox(height: 6),
+          Text(_mediaError!, style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.dimText), textAlign: TextAlign.center),
+          const SizedBox(height: 12),
+          GestureDetector(
+            onTap: _loadMedia,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(border: Border.all(color: HackerTheme.green)),
+              child: Text('RETRY', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.green)),
+            ),
+          ),
+        ]),
+      ));
+    }
+    if (_media.isEmpty) {
+      return Center(child: Text(
+        _mediaSearchCtrl.text.trim().isNotEmpty ? 'No matches' : 'No media yet',
+        style: HackerTheme.monoNoGlow(size: 11, color: HackerTheme.dimText),
+      ));
+    }
+    return RefreshIndicator(
+      color: HackerTheme.green,
+      backgroundColor: HackerTheme.bgCard,
+      onRefresh: _loadMedia,
+      child: ListView.builder(
+        padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+        itemCount: _media.length,
+        itemBuilder: (ctx, i) => _mediaCard(_media[i]),
+      ),
+    );
+  }
+
+  Widget _mediaCard(Map<String, dynamic> m) {
+    final kind = (m['kind'] ?? '').toString();
+    final mime = (m['mime_type'] ?? '').toString();
+    final transcript = (m['transcript'] ?? '').toString();
+    final caption = (m['caption'] ?? '').toString();
+    final personName = (m['person_name'] ?? '').toString();
+    final source = (m['source'] ?? '').toString();
+    final signedUrl = (m['signed_url'] ?? '').toString();
+    final bytes = (m['bytes'] is num) ? (m['bytes'] as num).toInt() : 0;
+    final createdAt = m['created_at']?.toString();
+    final similarity = m['similarity'];
+
+    final kindColor = switch (kind) {
+      'image' => HackerTheme.cyan,
+      'audio' => HackerTheme.amber,
+      'video' => const Color(0xFFFF00FF),
+      _ => HackerTheme.grey,
+    };
+    final kindIcon = switch (kind) {
+      'image' => Icons.image_outlined,
+      'audio' => Icons.audiotrack,
+      'video' => Icons.videocam_outlined,
+      _ => Icons.insert_drive_file_outlined,
+    };
+
+    final body = transcript.isNotEmpty ? transcript : caption;
+    final hasSigned = signedUrl.isNotEmpty;
+
+    return GestureDetector(
+      onTap: hasSigned ? () => _openMedia(m) : null,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        decoration: BoxDecoration(
+          color: HackerTheme.bgCard,
+          border: Border(left: BorderSide(color: kindColor, width: 2)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header row
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 4),
+              child: Row(children: [
+                Icon(kindIcon, size: 14, color: kindColor),
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                  decoration: BoxDecoration(border: Border.all(color: kindColor.withValues(alpha: 0.5))),
+                  child: Text(kind.toUpperCase(), style: HackerTheme.monoNoGlow(size: 7, color: kindColor)),
+                ),
+                if (mime.isNotEmpty) ...[
+                  const SizedBox(width: 6),
+                  Text(mime, style: HackerTheme.monoNoGlow(size: 7, color: HackerTheme.dimText)),
+                ],
+                const Spacer(),
+                if (similarity is num) ...[
+                  Text('${(similarity * 100).toStringAsFixed(0)}%', style: HackerTheme.monoNoGlow(size: 7, color: HackerTheme.cyan)),
+                  const SizedBox(width: 6),
+                ],
+                if (bytes > 0) Text(_humanBytes(bytes), style: HackerTheme.monoNoGlow(size: 7, color: HackerTheme.grey)),
+                if (createdAt != null) ...[
+                  const SizedBox(width: 6),
+                  Text(_timeAgo(DateTime.parse(createdAt)), style: HackerTheme.monoNoGlow(size: 7, color: HackerTheme.grey)),
+                ],
+              ]),
+            ),
+            // Person + source row
+            if (personName.isNotEmpty || source.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                child: Row(children: [
+                  if (personName.isNotEmpty) Text('@ $personName', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.green)),
+                  if (personName.isNotEmpty && source.isNotEmpty) const SizedBox(width: 8),
+                  if (source.isNotEmpty) Text(source, style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText)),
+                ]),
+              ),
+            // Image preview
+            if (kind == 'image' && hasSigned) Padding(
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
+              child: ClipRect(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 220),
+                  child: Image.network(
+                    signedUrl,
+                    fit: BoxFit.cover,
+                    width: double.infinity,
+                    loadingBuilder: (ctx, child, prog) => prog == null
+                        ? child
+                        : Container(
+                            height: 80,
+                            alignment: Alignment.center,
+                            child: const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: HackerTheme.green)),
+                          ),
+                    errorBuilder: (ctx, _, __) => Container(
+                      height: 80,
+                      alignment: Alignment.center,
+                      child: Text('image load failed', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.red)),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            // Text body (transcript or caption)
+            if (body.isNotEmpty) Padding(
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+              child: Text(
+                body.length > 280 ? '${body.substring(0, 280)}...' : body,
+                style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.white),
+              ),
+            )
+            else const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openMedia(Map<String, dynamic> m) {
+    final kind = (m['kind'] ?? '').toString();
+    final url = (m['signed_url'] ?? '').toString();
+    if (url.isEmpty) return;
+    if (kind == 'image') {
+      _showImageViewer(m);
+    } else {
+      _launchExternal(url);
+    }
+  }
+
+  Future<void> _launchExternal(String url) async {
+    try {
+      final uri = Uri.parse(url);
+      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open media URL'), backgroundColor: HackerTheme.red),
+        );
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Open failed: $e'), backgroundColor: HackerTheme.red),
+      );
+    }
+  }
+
+  void _showImageViewer(Map<String, dynamic> m) {
+    final url = (m['signed_url'] ?? '').toString();
+    final caption = (m['caption'] ?? '').toString();
+    final personName = (m['person_name'] ?? '').toString();
+    showDialog(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (ctx) => Dialog(
+        backgroundColor: HackerTheme.bgPanel,
+        insetPadding: const EdgeInsets.all(12),
+        shape: const RoundedRectangleBorder(
+          side: BorderSide(color: HackerTheme.borderDim),
+          borderRadius: BorderRadius.zero,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: const BoxDecoration(
+                border: Border(bottom: BorderSide(color: HackerTheme.borderDim)),
+              ),
+              child: Row(children: [
+                const Icon(Icons.image_outlined, size: 14, color: HackerTheme.cyan),
+                const SizedBox(width: 6),
+                Expanded(child: Text(
+                  personName.isNotEmpty ? '@ $personName' : 'image',
+                  style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.cyan),
+                )),
+                GestureDetector(
+                  onTap: () => _launchExternal(url),
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 6),
+                    child: Icon(Icons.open_in_new, size: 16, color: HackerTheme.green),
+                  ),
+                ),
+                GestureDetector(
+                  onTap: () => Navigator.of(ctx).pop(),
+                  child: const Icon(Icons.close, size: 16, color: HackerTheme.dimText),
+                ),
+              ]),
+            ),
+            Flexible(
+              child: InteractiveViewer(
+                minScale: 0.5,
+                maxScale: 5,
+                child: Image.network(
+                  url,
+                  fit: BoxFit.contain,
+                  errorBuilder: (ctx, _, __) => Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Text('image load failed', style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.red)),
+                  ),
+                ),
+              ),
+            ),
+            if (caption.isNotEmpty) Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: const BoxDecoration(
+                border: Border(top: BorderSide(color: HackerTheme.borderDim)),
+              ),
+              child: Text(caption, style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.white)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _humanBytes(int b) {
+    if (b < 1024) return '${b}B';
+    if (b < 1024 * 1024) return '${(b / 1024).toStringAsFixed(1)}KB';
+    if (b < 1024 * 1024 * 1024) return '${(b / 1024 / 1024).toStringAsFixed(1)}MB';
+    return '${(b / 1024 / 1024 / 1024).toStringAsFixed(2)}GB';
+  }
 }
