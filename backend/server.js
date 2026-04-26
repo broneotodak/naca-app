@@ -220,6 +220,126 @@ const server = http.createServer(async (req, res) => {
   }
 
   // =============================================
+  // SCHEDULED ACTIONS — operator cockpit for timekeeper queue
+  // =============================================
+
+  // GET /api/scheduled-actions?status=&kind=&since=&owner=&limit=
+  if (urlPath === '/api/scheduled-actions' && req.method === 'GET') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    try {
+      const status = url.searchParams.get('status'); // scheduled|fired|failed|cancelled|dead_letter
+      const kind = url.searchParams.get('kind');     // send_whatsapp|agent_command|agent_intent
+      const since = url.searchParams.get('since');   // ISO timestamp; filters fire_at >=
+      const owner = url.searchParams.get('owner');   // owner_subject_id uuid
+      const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') || '100'), 1), 500);
+
+      let q = supabase.from('scheduled_actions').select('*');
+      if (status) q = q.eq('status', status);
+      if (kind) q = q.eq('action_kind', kind);
+      if (owner) q = q.eq('owner_subject_id', owner);
+      if (since) q = q.gte('fire_at', since);
+      // Sort: pending soonest first, history most-recent first
+      q = (status === 'scheduled')
+        ? q.order('fire_at', { ascending: true })
+        : q.order('fire_at', { ascending: false });
+      q = q.limit(limit);
+
+      const { data, error } = await q;
+      if (error) throw error;
+
+      // Lightweight stats so the UI can show counts without a second call
+      const counts = await Promise.all([
+        supabase.from('scheduled_actions').select('id', { count: 'exact', head: true }).eq('status', 'scheduled'),
+        supabase.from('scheduled_actions').select('id', { count: 'exact', head: true }).eq('status', 'fired'),
+        supabase.from('scheduled_actions').select('id', { count: 'exact', head: true }).eq('status', 'failed'),
+        supabase.from('scheduled_actions').select('id', { count: 'exact', head: true }).eq('status', 'cancelled'),
+      ]);
+      json(res, {
+        actions: data || [],
+        stats: {
+          scheduled: counts[0].count || 0,
+          fired: counts[1].count || 0,
+          failed: counts[2].count || 0,
+          cancelled: counts[3].count || 0,
+        },
+      });
+    } catch (e) { json(res, { error: e.message }, 500); }
+    return;
+  }
+
+  // POST /api/scheduled-actions/:id/cancel — operator cancellation
+  const cancelMatch = urlPath.match(/^\/api\/scheduled-actions\/([0-9a-f-]{36})\/cancel$/);
+  if (cancelMatch && req.method === 'POST') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    const id = cancelMatch[1];
+    try {
+      // Only cancel rows still in 'scheduled' state — already-fired/cancelled rows are immutable
+      const { data, error } = await supabase.from('scheduled_actions')
+        .update({
+          status: 'cancelled',
+          cancelled_at: new Date().toISOString(),
+          cancelled_by: 'naca:operator',
+        })
+        .eq('id', id)
+        .eq('status', 'scheduled')
+        .select()
+        .single();
+      if (error) {
+        // 0 rows updated = either not-found or wrong status
+        if (error.code === 'PGRST116') { json(res, { error: 'not cancellable (already fired/cancelled or not found)' }, 409); return; }
+        throw error;
+      }
+      json(res, { ok: true, action: data });
+    } catch (e) { json(res, { error: e.message }, 500); }
+    return;
+  }
+
+  // POST /api/scheduled-actions — operator create (currently send_whatsapp parity)
+  if (urlPath === '/api/scheduled-actions' && req.method === 'POST') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    readBody(req, async (body) => {
+      try {
+        const kind = (body.action_kind || 'send_whatsapp').toString();
+        const fireAtRaw = (body.fire_at || '').toString().trim();
+        if (!fireAtRaw) { json(res, { error: 'fire_at required' }, 400); return; }
+        const fireAt = new Date(fireAtRaw);
+        if (isNaN(fireAt.getTime())) { json(res, { error: 'fire_at not a valid ISO 8601 timestamp' }, 400); return; }
+        if (fireAt.getTime() <= Date.now()) { json(res, { error: 'fire_at must be in the future' }, 400); return; }
+
+        // Validate payload by kind. We only allow operator-side reminders for now;
+        // agent_command / agent_intent are reserved for the agents themselves.
+        let payload;
+        if (kind === 'send_whatsapp') {
+          const to = (body.to || '').toString().trim();
+          const message = (body.message || '').toString().trim();
+          if (!to || !message) { json(res, { error: 'to and message required' }, 400); return; }
+          payload = { to, message };
+        } else {
+          json(res, { error: `action_kind '${kind}' not allowed from operator UI` }, 400); return;
+        }
+
+        const recurrence = body.recurrence ? body.recurrence.toString().trim() : null;
+        const description = (body.description || (payload.message || '')).toString().slice(0, 80);
+        const ownerId = (body.owner_subject_id || '00000000-0000-0000-0000-000000000001').toString();
+
+        const { data, error } = await supabase.from('scheduled_actions').insert({
+          fire_at: fireAt.toISOString(),
+          action_kind: kind,
+          action_payload: payload,
+          recurrence,
+          status: 'scheduled',
+          created_by: 'naca:operator',
+          owner_subject_id: ownerId,
+          description,
+        }).select().single();
+        if (error) throw error;
+        json(res, { ok: true, action: data }, 201);
+      } catch (e) { json(res, { error: e.message }, 500); }
+    });
+    return;
+  }
+
+  // =============================================
   // COST MONITOR — ElevenLabs subscription + usage estimates
   // =============================================
   if (urlPath === '/api/costs' && req.method === 'GET') {
