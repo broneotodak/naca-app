@@ -41,6 +41,12 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
   final _mediaSearchCtrl = TextEditingController();
   bool _mediaLoadedOnce = false;
 
+  // Cross-link cache: media metadata by id, populated lazily after _loadMemories.
+  // Lets memory cards render a badge for rows with non-null media_id without
+  // hitting the API per row. Backed by NACA /api/media-batch (no signed URLs).
+  Map<String, Map<String, dynamic>> _mediaById = {};
+  String? _highlightMemoryId; // set when we navigate from MEDIA → MEMORIES
+
   @override
   void initState() {
     super.initState();
@@ -66,12 +72,43 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
   Future<void> _loadMemories() async {
     try {
       final data = await _sb.from('memories')
-          .select('id, content, category, memory_type, importance, source, created_at')
+          .select('id, content, category, memory_type, importance, source, created_at, media_id')
           .order('created_at', ascending: false)
           .limit(50);
       if (mounted) setState(() { _memories = List<Map<String, dynamic>>.from(data); _loadingMemories = false; _memError = null; });
+      // Fire-and-forget enrichment for any rows with media_id
+      _enrichMemoriesWithMedia(_memories);
     } catch (e) {
       if (mounted) setState(() { _loadingMemories = false; _memError = e.toString(); });
+    }
+  }
+
+  // Batch-fetch media metadata for memories that have media_id, then setState
+  // so the badges render. No signed URLs here — the badge is metadata-only.
+  Future<void> _enrichMemoriesWithMedia(List<Map<String, dynamic>> memories) async {
+    final ids = <String>{};
+    for (final m in memories) {
+      final mid = m['media_id'];
+      if (mid is String && mid.isNotEmpty && !_mediaById.containsKey(mid)) ids.add(mid);
+    }
+    if (ids.isEmpty) return;
+    try {
+      final uri = Uri.parse('${AppConfig.apiBaseUrl}/api/media-batch')
+          .replace(queryParameters: {'ids': ids.join(',')});
+      final res = await http.get(uri, headers: {
+        'Authorization': 'Bearer ${AppConfig.authToken}',
+      }).timeout(const Duration(seconds: 10));
+      if (res.statusCode >= 400) return;
+      final body = jsonDecode(res.body) as Map<String, dynamic>;
+      final list = List<Map<String, dynamic>>.from(body['media'] ?? const []);
+      if (mounted) setState(() {
+        for (final m in list) {
+          final id = m['id']?.toString();
+          if (id != null) _mediaById[id] = m;
+        }
+      });
+    } catch (_) {
+      // Silent — badges just won't render. Memory list still works.
     }
   }
 
@@ -838,6 +875,10 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
     final importance = mem['importance'] ?? 5;
     final source = mem['source'] ?? '';
     final createdAt = mem['created_at'] as String?;
+    final memId = mem['id']?.toString();
+    final mediaId = mem['media_id']?.toString();
+    final media = (mediaId != null && mediaId.isNotEmpty) ? _mediaById[mediaId] : null;
+    final highlighted = memId != null && memId == _highlightMemoryId;
 
     final catColor = switch (category.toString().toLowerCase()) {
       'work' || 'project' => HackerTheme.cyan,
@@ -850,8 +891,13 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
       margin: const EdgeInsets.only(bottom: 6),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: HackerTheme.bgCard,
-        border: Border(left: BorderSide(color: catColor, width: 2)),
+        color: highlighted ? HackerTheme.greenDim : HackerTheme.bgCard,
+        border: Border(
+          left: BorderSide(color: catColor, width: 2),
+          top: highlighted ? const BorderSide(color: HackerTheme.green) : BorderSide.none,
+          right: highlighted ? const BorderSide(color: HackerTheme.green) : BorderSide.none,
+          bottom: highlighted ? const BorderSide(color: HackerTheme.green) : BorderSide.none,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -880,9 +926,75 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
             content.toString().length > 200 ? '${content.toString().substring(0, 200)}...' : content.toString(),
             style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.white),
           ),
+          if (mediaId != null && mediaId.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            _memoryMediaBadge(media, mediaId),
+          ],
         ],
       ),
     );
+  }
+
+  Widget _memoryMediaBadge(Map<String, dynamic>? media, String mediaId) {
+    final kind = (media?['kind'] ?? '').toString();
+    final transcript = (media?['transcript'] ?? '').toString();
+    final caption = (media?['caption'] ?? '').toString();
+    final snippet = transcript.isNotEmpty ? transcript : caption;
+
+    final color = switch (kind) {
+      'image' => HackerTheme.cyan,
+      'audio' => HackerTheme.amber,
+      'video' => const Color(0xFFFF00FF),
+      _ => HackerTheme.grey,
+    };
+    final icon = switch (kind) {
+      'image' => Icons.image_outlined,
+      'audio' => Icons.audiotrack,
+      'video' => Icons.videocam_outlined,
+      _ => Icons.attachment,
+    };
+    final label = kind.isEmpty ? 'media' : kind.toUpperCase();
+
+    return GestureDetector(
+      onTap: () => _jumpToMediaForMemory(mediaId, snippet),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        decoration: BoxDecoration(border: Border.all(color: color.withValues(alpha: 0.5))),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 12, color: color),
+            const SizedBox(width: 4),
+            Text(label, style: HackerTheme.monoNoGlow(size: 8, color: color)),
+            if (snippet.isNotEmpty) ...[
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  snippet.length > 60 ? '${snippet.substring(0, 60)}...' : snippet,
+                  style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+            const SizedBox(width: 4),
+            const Icon(Icons.chevron_right, size: 10, color: HackerTheme.dimText),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Memory → MEDIA tab navigation. Uses transcript/caption snippet as the
+  // semantic-search prefill so the linked media appears at the top of results.
+  void _jumpToMediaForMemory(String mediaId, String snippet) {
+    if (snippet.isNotEmpty) {
+      _mediaSearchCtrl.text = snippet.length > 100 ? snippet.substring(0, 100) : snippet;
+    }
+    _tabCtrl.animateTo(3); // MEDIA sub-tab
+    if (!_mediaLoadedOnce) {
+      _mediaLoadedOnce = true;
+    }
+    _loadMedia();
   }
 
   Color _relationshipColor(String? relationship, String? kind) {
@@ -1514,7 +1626,7 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
                 ],
               ]),
             ),
-            // Person + source row
+            // Person + source row + source-memory link
             if (personName.isNotEmpty || source.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -1522,6 +1634,15 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
                   if (personName.isNotEmpty) Text('@ $personName', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.green)),
                   if (personName.isNotEmpty && source.isNotEmpty) const SizedBox(width: 8),
                   if (source.isNotEmpty) Text(source, style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText)),
+                  const Spacer(),
+                  GestureDetector(
+                    onTap: () => _jumpToSourceMemory(m['id']?.toString() ?? ''),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      const Icon(Icons.north_east, size: 10, color: HackerTheme.cyan),
+                      const SizedBox(width: 2),
+                      Text('SOURCE', style: HackerTheme.monoNoGlow(size: 7, color: HackerTheme.cyan)),
+                    ]),
+                  ),
                 ]),
               ),
             // Image preview
@@ -1563,6 +1684,43 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
         ),
       ),
     );
+  }
+
+  // MEDIA → MEMORIES navigation. Looks up the memory whose media_id matches
+  // this row's id, prepends to _memories if it isn't visible, then switches to
+  // MEMORIES sub-tab and highlights the row.
+  Future<void> _jumpToSourceMemory(String mediaId) async {
+    if (mediaId.isEmpty) return;
+    try {
+      final mem = await _sb.from('memories')
+          .select('id, content, category, memory_type, importance, source, created_at, media_id')
+          .eq('media_id', mediaId)
+          .maybeSingle();
+      if (mem == null) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No source memory found for this media'), backgroundColor: HackerTheme.amber),
+        );
+        return;
+      }
+      final memMap = Map<String, dynamic>.from(mem);
+      final memId = memMap['id']?.toString();
+      if (mounted) setState(() {
+        // If this memory isn't already in the list, prepend it
+        if (memId != null && !_memories.any((x) => x['id']?.toString() == memId)) {
+          _memories = [memMap, ..._memories];
+        }
+        _highlightMemoryId = memId;
+      });
+      _tabCtrl.animateTo(0); // MEMORIES sub-tab
+      // Clear highlight after a few seconds so the visual fades
+      Future.delayed(const Duration(seconds: 4), () {
+        if (mounted && _highlightMemoryId == memId) setState(() => _highlightMemoryId = null);
+      });
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Source lookup failed: $e'), backgroundColor: HackerTheme.red),
+      );
+    }
   }
 
   void _openMedia(Map<String, dynamic> m) {

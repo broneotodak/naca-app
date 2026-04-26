@@ -221,6 +221,23 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // GET /api/media-batch?ids=uuid1,uuid2 — fetch media metadata for memory cross-links
+  // Returns kind/mime/transcript/caption only (no signed URLs — those still come from Siti).
+  if (urlPath === '/api/media-batch' && req.method === 'GET') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    try {
+      const idsParam = url.searchParams.get('ids') || '';
+      const ids = idsParam.split(',').map(s => s.trim()).filter(Boolean).slice(0, 200);
+      if (!ids.length) { json(res, { media: [] }); return; }
+      const { data, error } = await supabase.from('media')
+        .select('id, kind, mime_type, transcript, caption, source, source_ref, subject_id, bytes, created_at')
+        .in('id', ids);
+      if (error) throw error;
+      json(res, { media: data || [] });
+    } catch (e) { json(res, { error: e.message }, 500); }
+    return;
+  }
+
   // =============================================
   // SCHEDULED ACTIONS — operator cockpit for timekeeper queue
   // =============================================
