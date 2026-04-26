@@ -533,14 +533,16 @@ const server = http.createServer(async (req, res) => {
   if (urlPath.startsWith('/api/siti/')) {
     const sitiPath = urlPath.replace('/api/siti', '');
     const sitiPin = process.env.SITI_PIN || '404282';
-    const sitiUrl = new URL(`http://localhost:3800${sitiPath}`);
+    // Forward the original query string verbatim — urlPath is path-only,
+    // so kind/person_id/limit etc. would be dropped without `url.search`.
+    const queryString = url.search || '';
 
     // Read request body for POST/PATCH/DELETE
     readBody(req, (reqBody) => {
       const options = {
-        hostname: sitiUrl.hostname,
-        port: sitiUrl.port,
-        path: sitiUrl.pathname + sitiUrl.search,
+        hostname: 'localhost',
+        port: 3800,
+        path: sitiPath + queryString,
         method: req.method,
         timeout: 15000,
         headers: {
