@@ -7,6 +7,7 @@ import 'screens/home_screen.dart';
 import 'screens/projects_screen.dart';
 import 'screens/memory_screen.dart';
 import 'screens/schedule_screen.dart';
+import 'screens/workspace_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/realtime_service.dart';
 import 'services/sound_service.dart';
@@ -78,7 +79,8 @@ class _NacaShellState extends State<NacaShell> {
     ProjectsScreen(),   // Tab 3: Projects
     MemoryScreen(),     // Tab 4: Memory
     ScheduleScreen(),   // Tab 5: Scheduled actions
-    SettingsScreen(),   // Tab 6: Settings
+    WorkspaceScreen(),  // Tab 6: Google Workspace (GAM gateway)
+    SettingsScreen(),   // Tab 7: Settings
   ];
 
   static const _navItems = [
@@ -88,6 +90,7 @@ class _NacaShellState extends State<NacaShell> {
     _NavItem(Icons.folder_rounded, 'PROJ'),
     _NavItem(Icons.memory_rounded, 'MEM'),
     _NavItem(Icons.schedule_rounded, 'SCHED'),
+    _NavItem(Icons.cloud_rounded, 'WSPC'),
     _NavItem(Icons.settings_rounded, 'CFG'),
   ];
 

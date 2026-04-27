@@ -338,6 +338,24 @@ const server = http.createServer(async (req, res) => {
   // Siti's tools call these endpoints, never SSH to TDCC directly.
   // =============================================
 
+  // GET /api/gam/health — cheap probe for Kuma. Verifies SSH path to TDCC
+  // works without actually invoking gam (which is slower). Sub-second.
+  if (urlPath === '/api/gam/health' && req.method === 'GET') {
+    const startedAt = Date.now();
+    const proc = spawn('ssh', ['tdcc', 'echo ok'], { timeout: 8_000 });
+    let out = '';
+    proc.stdout.on('data', d => { out += d.toString(); });
+    proc.on('close', code => {
+      const ms = Date.now() - startedAt;
+      const ok = code === 0 && out.trim() === 'ok';
+      json(res, { ok, ms, exitCode: code }, ok ? 200 : 503);
+    });
+    proc.on('error', () => {
+      json(res, { ok: false, ms: Date.now() - startedAt, error: 'ssh spawn failed' }, 503);
+    });
+    return;
+  }
+
   // GET /api/gam/orgs — list all OUs (Org Units) in the Workspace
   if (urlPath === '/api/gam/orgs' && req.method === 'GET') {
     const meta = { from_agent: 'naca-app', requested_by: req.headers['x-requested-by'] || null };
