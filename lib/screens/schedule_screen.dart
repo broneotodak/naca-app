@@ -104,20 +104,40 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
               Expanded(child: _buildList()),
             ],
           ),
-          // FAB for compose
+          // FABs — REMINDER (existing) + COMPOSE POST (Phase 4 Step E2 first slice)
           Positioned(
             right: 16,
             bottom: 16,
-            child: FloatingActionButton.extended(
-              onPressed: _showComposeDialog,
-              backgroundColor: HackerTheme.bgPanel,
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.zero,
-                side: const BorderSide(color: HackerTheme.green),
-              ),
-              icon: const Icon(Icons.add, color: HackerTheme.green, size: 16),
-              label: Text('NEW REMINDER', style: HackerTheme.mono(size: 10, color: HackerTheme.green)),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                FloatingActionButton.extended(
+                  heroTag: 'sched-compose-post',
+                  onPressed: _showPostComposeDialog,
+                  backgroundColor: HackerTheme.bgPanel,
+                  elevation: 0,
+                  shape: const RoundedRectangleBorder(
+                    borderRadius: BorderRadius.zero,
+                    side: BorderSide(color: HackerTheme.cyan),
+                  ),
+                  icon: const Icon(Icons.send, color: HackerTheme.cyan, size: 16),
+                  label: Text('COMPOSE POST', style: HackerTheme.mono(size: 10, color: HackerTheme.cyan)),
+                ),
+                const SizedBox(height: 8),
+                FloatingActionButton.extended(
+                  heroTag: 'sched-reminder',
+                  onPressed: _showComposeDialog,
+                  backgroundColor: HackerTheme.bgPanel,
+                  elevation: 0,
+                  shape: const RoundedRectangleBorder(
+                    borderRadius: BorderRadius.zero,
+                    side: BorderSide(color: HackerTheme.green),
+                  ),
+                  icon: const Icon(Icons.add, color: HackerTheme.green, size: 16),
+                  label: Text('NEW REMINDER', style: HackerTheme.mono(size: 10, color: HackerTheme.green)),
+                ),
+              ],
             ),
           ),
         ],
@@ -556,6 +576,180 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         ),
       ),
     );
+  }
+
+  // ── COMPOSE POST dialog (Phase 4 Step E2 first slice) ──
+  // Backend writes a scheduled_action pointing at poster-agent. Agent itself
+  // does not exist yet — these rows wait at status='scheduled' until it ships.
+  // For now this is the operator-side data flow; v2 adds Drive/MEDIA pickers.
+
+  static const List<String> _channels = ['linkedin', 'threads', 'instagram', 'tiktok', 'twitter'];
+
+  void _showPostComposeDialog() {
+    String channel = 'linkedin';
+    final captionCtrl = TextEditingController();
+    final driveFileIdCtrl = TextEditingController();
+    DateTime fireAt = DateTime.now().add(const Duration(hours: 1));
+    String? formError;
+    bool submitting = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          backgroundColor: HackerTheme.bgPanel,
+          shape: const RoundedRectangleBorder(side: BorderSide(color: HackerTheme.cyan)),
+          title: Row(children: [
+            const Icon(Icons.send, size: 16, color: HackerTheme.cyan),
+            const SizedBox(width: 8),
+            Text('// COMPOSE POST', style: HackerTheme.mono(size: 13, color: HackerTheme.cyan)),
+          ]),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 460),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('queue a social media post · poster-agent fires at fire_at',
+                    style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.dimText)),
+                  _label('channel'),
+                  Wrap(
+                    spacing: 6, runSpacing: 6,
+                    children: _channels.map((c) {
+                      final selected = channel == c;
+                      return GestureDetector(
+                        onTap: () => setLocal(() => channel = c),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: selected ? HackerTheme.cyan : HackerTheme.borderDim),
+                            color: selected ? HackerTheme.cyan.withValues(alpha: 0.1) : null,
+                          ),
+                          child: Text(c.toUpperCase(),
+                            style: HackerTheme.monoNoGlow(size: 9, color: selected ? HackerTheme.cyan : HackerTheme.dimText)),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  _label('caption'),
+                  _input(captionCtrl, hint: 'What to post…', maxLines: 5),
+                  _label('fires at (local time)'),
+                  GestureDetector(
+                    onTap: () async {
+                      final date = await showDatePicker(
+                        context: ctx,
+                        initialDate: fireAt,
+                        firstDate: DateTime.now(),
+                        lastDate: DateTime.now().add(const Duration(days: 365)),
+                      );
+                      if (date == null) return;
+                      if (!ctx.mounted) return;
+                      final time = await showTimePicker(
+                        context: ctx,
+                        initialTime: TimeOfDay.fromDateTime(fireAt),
+                      );
+                      if (time == null) return;
+                      setLocal(() => fireAt = DateTime(date.year, date.month, date.day, time.hour, time.minute));
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                      decoration: BoxDecoration(border: Border.all(color: HackerTheme.borderDim)),
+                      child: Row(children: [
+                        const Icon(Icons.schedule, size: 14, color: HackerTheme.cyan),
+                        const SizedBox(width: 8),
+                        Text(_formatLocal(fireAt), style: HackerTheme.monoNoGlow(size: 11, color: HackerTheme.white)),
+                      ]),
+                    ),
+                  ),
+                  _label('drive file id (optional — attaches a Drive file as media)'),
+                  _input(driveFileIdCtrl, hint: 'paste from WSPC › FILES, or leave empty for text-only'),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(border: Border.all(color: HackerTheme.amber.withValues(alpha: 0.4))),
+                      child: Text(
+                        '// poster-agent does not exist yet. This row queues at status=scheduled '
+                        'and waits. When the agent ships (TODO), it picks up these rows and posts. '
+                        'Cancel anytime from the SCHED list.',
+                        style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.amber),
+                      ),
+                    ),
+                  ),
+                  if (formError != null) Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(formError!, style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.red)),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: submitting ? null : () => Navigator.pop(ctx),
+              child: Text('CANCEL', style: HackerTheme.mono(size: 11, color: HackerTheme.dimText)),
+            ),
+            TextButton(
+              onPressed: submitting ? null : () async {
+                final caption = captionCtrl.text.trim();
+                final driveFileId = driveFileIdCtrl.text.trim();
+                if (caption.isEmpty) { setLocal(() => formError = 'caption required'); return; }
+                if (fireAt.isBefore(DateTime.now())) { setLocal(() => formError = 'fire_at must be in the future'); return; }
+                setLocal(() { submitting = true; formError = null; });
+                final err = await _createPost(
+                  channel: channel,
+                  caption: caption,
+                  fireAt: fireAt,
+                  driveFileId: driveFileId.isEmpty ? null : driveFileId,
+                );
+                if (err != null) {
+                  setLocal(() { submitting = false; formError = err; });
+                } else {
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  await _load(silent: true);
+                }
+              },
+              child: submitting
+                  ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: HackerTheme.cyan))
+                  : Text('SCHEDULE POST', style: HackerTheme.mono(size: 11, color: HackerTheme.cyan)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<String?> _createPost({
+    required String channel,
+    required String caption,
+    required DateTime fireAt,
+    String? driveFileId,
+    String? mediaId,
+  }) async {
+    try {
+      final res = await http.post(
+        Uri.parse('${AppConfig.apiBaseUrl}/api/content/schedule'),
+        headers: {
+          'Authorization': 'Bearer ${AppConfig.authToken}',
+          'content-type': 'application/json',
+        },
+        body: jsonEncode({
+          'channel': channel,
+          'caption': caption,
+          'fire_at': fireAt.toUtc().toIso8601String(),
+          if (driveFileId != null) 'drive_file_id': driveFileId,
+          if (mediaId != null) 'media_id': mediaId,
+        }),
+      ).timeout(const Duration(seconds: 15));
+      if (res.statusCode >= 400) {
+        try { final j = jsonDecode(res.body); return j['error']?.toString() ?? 'HTTP ${res.statusCode}'; } catch (_) {}
+        return 'HTTP ${res.statusCode}';
+      }
+      return null;
+    } catch (e) {
+      return e.toString();
+    }
   }
 
   Future<String?> _createReminder({required String to, required String message, required DateTime fireAt, String? recurrence}) async {

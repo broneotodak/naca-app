@@ -858,6 +858,66 @@ echo "TMPDIR=$TMP"
     return;
   }
 
+  // POST /api/content/schedule — Phase 4 Step E2 first-slice (UI scaffold)
+  // Creates a scheduled_action pointing at poster-agent. The agent itself
+  // doesn't exist yet (TODO: spec at neo-brain memory). Operator-side data
+  // flow goes live now so when poster-agent ships, queued posts just fire.
+  if (urlPath === '/api/content/schedule' && req.method === 'POST') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    readBody(req, async (body) => {
+      try {
+        const channel = (body.channel || '').toString().trim();
+        const allowedChannels = ['linkedin', 'threads', 'instagram', 'tiktok', 'twitter'];
+        if (!allowedChannels.includes(channel)) {
+          json(res, { error: `channel must be one of: ${allowedChannels.join(', ')}` }, 400); return;
+        }
+        const caption = (body.caption || '').toString();
+        if (!caption.trim()) { json(res, { error: 'caption required' }, 400); return; }
+        const fireAtRaw = (body.fire_at || '').toString().trim();
+        if (!fireAtRaw) { json(res, { error: 'fire_at required' }, 400); return; }
+        const fireAt = new Date(fireAtRaw);
+        if (isNaN(fireAt.getTime())) { json(res, { error: 'fire_at invalid ISO 8601' }, 400); return; }
+        if (fireAt.getTime() <= Date.now()) { json(res, { error: 'fire_at must be in the future' }, 400); return; }
+        // Optional attachment: drive file id OR neo-brain media id (one or the other)
+        const driveFileId = body.drive_file_id ? body.drive_file_id.toString().trim() : null;
+        const mediaId = body.media_id ? body.media_id.toString().trim() : null;
+        if (driveFileId && !/^[A-Za-z0-9_-]+$/.test(driveFileId)) {
+          json(res, { error: 'invalid drive_file_id' }, 400); return;
+        }
+        if (mediaId && !/^[0-9a-f-]{36}$/.test(mediaId)) {
+          json(res, { error: 'invalid media_id (uuid expected)' }, 400); return;
+        }
+        const ownerId = (body.owner_subject_id || '00000000-0000-0000-0000-000000000001').toString();
+
+        const description = `${channel} post: ${caption.slice(0, 60)}`;
+        const actionPayload = {
+          from_agent: 'naca-app',
+          to_agent: 'poster-agent', // TODO: agent doesn't exist yet — see neo-brain memory for spec
+          command: 'post_content',
+          payload: {
+            channel,
+            caption,
+            drive_file_id: driveFileId,
+            media_id: mediaId,
+          },
+        };
+        const { data, error } = await supabase.from('scheduled_actions').insert({
+          fire_at: fireAt.toISOString(),
+          action_kind: 'agent_command',
+          action_payload: actionPayload,
+          recurrence: null,
+          status: 'scheduled',
+          created_by: 'naca:operator',
+          owner_subject_id: ownerId,
+          description,
+        }).select().single();
+        if (error) throw error;
+        json(res, { ok: true, action: data, note: 'poster-agent does not exist yet — this row will sit at status=scheduled until that agent ships' }, 201);
+      } catch (e) { json(res, { error: e.message }, 500); }
+    });
+    return;
+  }
+
   // POST /api/scheduled-actions — operator create (currently send_whatsapp parity)
   if (urlPath === '/api/scheduled-actions' && req.method === 'POST') {
     if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
