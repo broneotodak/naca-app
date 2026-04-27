@@ -365,6 +365,101 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // GET /api/agents/insights — per-agent rollup for last 24h
+  // Aggregates from agent_heartbeats + agent_commands + gam_audit +
+  // memory_writes_log to give a "what each agent did today" view. Drives the
+  // HQ AGENT INSIGHTS panel — observational, no actions exposed.
+  if (urlPath === '/api/agents/insights' && req.method === 'GET') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    try {
+      const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+      const [hb, cmds, gam, memWrites] = await Promise.all([
+        supabase.from('agent_heartbeats').select('agent_name, status, meta, reported_at'),
+        supabase.from('agent_commands').select('to_agent, from_agent, status, error, command, created_at').gte('created_at', since),
+        supabase.from('gam_audit').select('requested_by, verb, exit_code, ms_elapsed, error, created_at').gte('created_at', since),
+        supabase.from('memory_writes_log').select('source, created_at').gte('created_at', since),
+      ]);
+      const heartbeats = hb.data || [];
+      const commands = cmds.data || [];
+      const gamCalls = gam.data || [];
+      const memCounts = (memWrites.data || []).reduce((acc, r) => { acc[r.source || '?'] = (acc[r.source || '?'] || 0) + 1; return acc; }, {});
+
+      // Build per-agent rollup. Start from heartbeats (canonical agent list)
+      // then enrich with command + audit + memory metrics.
+      const now = Date.now();
+      const byAgent = {};
+      for (const h of heartbeats) {
+        const ageMin = Math.round((now - new Date(h.reported_at).getTime()) / 60000);
+        byAgent[h.agent_name] = {
+          agent: h.agent_name,
+          status: h.status || 'unknown',
+          last_seen_min: ageMin,
+          stale: ageMin > 5,
+          memory_mb: h.meta?.memory_mb ?? null,
+          version: h.meta?.version ?? null,
+          cmd_total: 0, cmd_done: 0, cmd_failed: 0, cmd_pending: 0,
+          gam_calls: 0, gam_failed: 0, gam_p95_ms: 0,
+          mem_writes: memCounts[h.agent_name] || 0,
+          recent_failures: [],
+        };
+      }
+      // Commands: count by to_agent (agent that should execute)
+      for (const c of commands) {
+        const a = byAgent[c.to_agent];
+        if (!a) continue;
+        a.cmd_total++;
+        if (c.status === 'completed') a.cmd_done++;
+        else if (c.status === 'pending' || c.status === 'running') a.cmd_pending++;
+        else if (['failed', 'dead_letter', 'needs_review'].includes(c.status)) {
+          a.cmd_failed++;
+          if (a.recent_failures.length < 3 && c.error) a.recent_failures.push((c.command + ': ' + c.error).slice(0, 100));
+        }
+      }
+      // GAM calls: bucket by requested_by (siti, naca-ui, etc.)
+      const gamByCaller = {};
+      for (const g of gamCalls) {
+        const caller = g.requested_by || 'naca-ui';
+        if (!gamByCaller[caller]) gamByCaller[caller] = { calls: 0, failed: 0, latencies: [] };
+        gamByCaller[caller].calls++;
+        if (g.exit_code !== 0) gamByCaller[caller].failed++;
+        if (g.ms_elapsed) gamByCaller[caller].latencies.push(g.ms_elapsed);
+      }
+      // Calculate p95 per caller
+      for (const [caller, stats] of Object.entries(gamByCaller)) {
+        const sorted = stats.latencies.sort((a, b) => a - b);
+        stats.p95 = sorted.length ? sorted[Math.floor(sorted.length * 0.95)] : 0;
+      }
+      // Map gam stats onto agents (siti = siti, naca-ui = naca-app)
+      for (const a of Object.values(byAgent)) {
+        const gamKey = a.agent === 'naca-app' ? 'naca-ui' : a.agent;
+        const g = gamByCaller[gamKey];
+        if (g) { a.gam_calls = g.calls; a.gam_failed = g.failed; a.gam_p95_ms = g.p95; }
+      }
+
+      // Sort: stale agents first (operator concern), then by command volume
+      const agents = Object.values(byAgent).sort((x, y) => {
+        if (x.stale !== y.stale) return x.stale ? -1 : 1;
+        return y.cmd_total - x.cmd_total;
+      });
+
+      json(res, {
+        window: '24h',
+        generated_at: new Date().toISOString(),
+        agents,
+        totals: {
+          agent_count: agents.length,
+          stale_count: agents.filter(a => a.stale).length,
+          cmd_total: commands.length,
+          cmd_failed: commands.filter(c => ['failed', 'dead_letter', 'needs_review'].includes(c.status)).length,
+          gam_calls: gamCalls.length,
+          gam_failed: gamCalls.filter(g => g.exit_code !== 0).length,
+          mem_writes: (memWrites.data || []).length,
+        },
+      });
+    } catch (e) { json(res, { error: e.message }, 500); }
+    return;
+  }
+
   // GET /api/agents/locks — active project locks
   if (urlPath === '/api/agents/locks' && req.method === 'GET') {
     if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }

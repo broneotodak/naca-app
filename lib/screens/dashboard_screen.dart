@@ -37,6 +37,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // Uptime Kuma fleet status (grouped monitors)
   Map<String, dynamic>? _kuma; // { groups: [...], counts: {up,down,...}, lastUpdated, statusPageUrl }
 
+  // Agent insights — per-agent 24h rollup from /api/agents/insights
+  Map<String, dynamic>? _insights;
+
   // Supervisor incidents (memories of category supervisor / supervisor-observation
   // + agent_intents authored by supervisor). Last 7 days, capped at 30 entries.
   List<Map<String, dynamic>> _incidents = [];
@@ -76,7 +79,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _loadAll() async {
     try {
-      await Future.wait([_loadAgentData(), _checkServices(), _loadCosts(), _loadIntents(), _loadKumaStatus(), _loadIncidents(), _loadPendingPrs()]);
+      await Future.wait([_loadAgentData(), _checkServices(), _loadCosts(), _loadIntents(), _loadKumaStatus(), _loadIncidents(), _loadPendingPrs(), _loadInsights()]);
       if (mounted) setState(() { _loading = false; _error = null; _lastRefresh = DateTime.now(); });
     } catch (e) {
       if (mounted) setState(() { _error = e.toString(); _loading = false; });
@@ -250,6 +253,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
     } catch (_) {
       // keep last known state on transient errors
     }
+  }
+
+  // Agent insights — per-agent 24h rollup. Backed by /api/agents/insights
+  // which aggregates agent_heartbeats + agent_commands + gam_audit +
+  // memory_writes_log. Drives the AGENT INSIGHTS HQ panel.
+  Future<void> _loadInsights() async {
+    try {
+      final res = await http.get(
+        Uri.parse('${AppConfig.apiBaseUrl}/api/agents/insights'),
+        headers: {'Authorization': 'Bearer ${AppConfig.authToken}'},
+      ).timeout(const Duration(seconds: 15));
+      if (res.statusCode < 400 && mounted) {
+        _insights = jsonDecode(res.body) as Map<String, dynamic>;
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadAgentData() async {
@@ -619,6 +637,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
         if (_agents.isEmpty) _emptyState('No agents reporting'),
         const SizedBox(height: 16),
 
+        // Agent insights — last 24h activity rollup per agent
+        if (_insights != null) ...[
+          _section('AGENT INSIGHTS · 24H'),
+          _buildInsightsTotalRow(),
+          ..._insightsAgents().map(_buildInsightCard),
+          const SizedBox(height: 16),
+        ],
+
         // Pending PR decisions — read-only. Approve/Reject/Hold via WhatsApp chat with Siti.
         if (_pendingPrs.isNotEmpty) ...[
           _section('PRs · AWAITING YOUR WHATSAPP REPLY'),
@@ -823,6 +849,123 @@ class _DashboardScreenState extends State<DashboardScreen> {
     decoration: HackerTheme.terminalBox(),
     child: Center(child: Text(text, style: HackerTheme.monoNoGlow(size: 11, color: HackerTheme.dimText))),
   );
+
+  // ── AGENT INSIGHTS · 24H ──
+
+  List<Map<String, dynamic>> _insightsAgents() {
+    final list = (_insights?['agents'] as List?) ?? const [];
+    return list.cast<Map<String, dynamic>>();
+  }
+
+  Widget _buildInsightsTotalRow() {
+    final t = (_insights?['totals'] as Map?) ?? const {};
+    final cmdT = t['cmd_total'] ?? 0;
+    final cmdF = t['cmd_failed'] ?? 0;
+    final gamT = t['gam_calls'] ?? 0;
+    final gamF = t['gam_failed'] ?? 0;
+    final mem = t['mem_writes'] ?? 0;
+    final stale = t['stale_count'] ?? 0;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: HackerTheme.bgCard,
+        border: const Border(left: BorderSide(color: HackerTheme.cyan, width: 2)),
+      ),
+      child: Wrap(
+        spacing: 14, runSpacing: 4,
+        children: [
+          _statChip('cmds', '$cmdT', HackerTheme.green),
+          _statChip('failed', '$cmdF', cmdF == 0 ? HackerTheme.dimText : HackerTheme.red),
+          _statChip('gam', '$gamT', HackerTheme.cyan),
+          _statChip('gam-fail', '$gamF', gamF == 0 ? HackerTheme.dimText : HackerTheme.red),
+          _statChip('mem-writes', '$mem', HackerTheme.amber),
+          _statChip('stale-agents', '$stale', stale == 0 ? HackerTheme.dimText : HackerTheme.amber),
+        ],
+      ),
+    );
+  }
+
+  Widget _statChip(String label, String value, Color color) {
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      Text(value, style: HackerTheme.mono(size: 11, color: color)),
+      const SizedBox(width: 4),
+      Text(label, style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText)),
+    ]);
+  }
+
+  Widget _buildInsightCard(Map<String, dynamic> a) {
+    final agent = (a['agent'] ?? '?').toString();
+    final status = (a['status'] ?? '').toString();
+    final stale = a['stale'] == true;
+    final lastSeen = a['last_seen_min'] is num ? (a['last_seen_min'] as num).toInt() : null;
+    final cmdTotal = a['cmd_total'] ?? 0;
+    final cmdDone = a['cmd_done'] ?? 0;
+    final cmdFailed = a['cmd_failed'] ?? 0;
+    final cmdPending = a['cmd_pending'] ?? 0;
+    final gamCalls = a['gam_calls'] ?? 0;
+    final gamFailed = a['gam_failed'] ?? 0;
+    final gamP95 = a['gam_p95_ms'] ?? 0;
+    final memWrites = a['mem_writes'] ?? 0;
+    final memMb = a['memory_mb'];
+    final recentFailures = (a['recent_failures'] as List?) ?? const [];
+
+    final color = stale ? HackerTheme.amber : (status == 'ok' ? HackerTheme.green : HackerTheme.red);
+    final hasActivity = cmdTotal != 0 || gamCalls != 0 || memWrites != 0;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+      decoration: BoxDecoration(
+        color: HackerTheme.bgCard,
+        border: Border(left: BorderSide(color: color, width: 2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Container(width: 6, height: 6, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+            const SizedBox(width: 6),
+            Text(agent, style: HackerTheme.mono(size: 11, color: color)),
+            const SizedBox(width: 8),
+            Text(status, style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText)),
+            if (lastSeen != null) ...[
+              const SizedBox(width: 8),
+              Text('last seen ${lastSeen}m ago', style: HackerTheme.monoNoGlow(size: 8, color: stale ? HackerTheme.amber : HackerTheme.dimText)),
+            ],
+            if (memMb is num) ...[
+              const SizedBox(width: 8),
+              Text('${memMb.toInt()}MB', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText)),
+            ],
+          ]),
+          if (hasActivity) Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Wrap(
+              spacing: 12, runSpacing: 4,
+              children: [
+                if (cmdTotal != 0) _statChip('cmd', '$cmdDone/$cmdTotal', cmdFailed == 0 ? HackerTheme.green : HackerTheme.amber),
+                if (cmdFailed != 0) _statChip('failed', '$cmdFailed', HackerTheme.red),
+                if (cmdPending != 0) _statChip('pending', '$cmdPending', HackerTheme.amber),
+                if (gamCalls != 0) _statChip('gam', '$gamCalls', HackerTheme.cyan),
+                if (gamFailed != 0) _statChip('gam-fail', '$gamFailed', HackerTheme.red),
+                if (gamP95 is num && gamP95 > 0) _statChip('p95', '${gamP95}ms', HackerTheme.dimText),
+                if (memWrites != 0) _statChip('mem-writes', '$memWrites', HackerTheme.amber),
+              ],
+            ),
+          ),
+          if (recentFailures.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            for (final f in recentFailures.take(2)) Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text('⚠ ${f.toString()}',
+                style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.red),
+                maxLines: 2, overflow: TextOverflow.ellipsis),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
 
   // ── SERVICE GRID ──
 
