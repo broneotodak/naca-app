@@ -16,6 +16,117 @@ if (process.env.NEO_BRAIN_URL && process.env.NEO_BRAIN_SERVICE_ROLE_KEY) {
   console.log('[NACA] Supabase connected to neo-brain');
 }
 
+// === GAM (Google Apps Manager) wrapper — Phase 4b Step 1A ==================
+// Centralized Workspace gateway. Every /api/gam/* endpoint funnels through
+// gamExec, which:
+//   1) validates verb against ALLOWED_GAM_VERBS (no destructive ops, ever)
+//   2) SSHes to TDCC VPS as the `tdcc` host alias (key on this VPS)
+//   3) runs `gam <verb> <args>` and captures stdout/stderr/exit code
+//   4) writes a row to neo-brain.gam_audit so we have a single source of
+//      truth on what was queried by whom
+// Siti's GAM tools are designed as thin clients of this layer (Phase 4b
+// Step 1B in the parallel CC session) — agents NEVER SSH to TDCC directly.
+const { spawn } = require('child_process');
+const ALLOWED_GAM_VERBS = new Set([
+  'info',     // info user, info domain, info group
+  'print',    // print users, print orgs, print shareddrives, etc.
+  'show',     // show ous, show users
+  'report',   // report users, report customer (audit/usage reports)
+  'redirect', // `redirect csv -` for piping reports as CSV; verb word matched verbatim
+]);
+const FORBIDDEN_GAM_TOKENS = [
+  // belt-and-braces: even though only read verbs are allowed above, refuse
+  // any args that mention destructive verbs in case someone smuggles them
+  // through args. NEVER allow these tokens in the args string.
+  'delete', 'remove', 'create', 'update', 'modify', 'transfer', 'undelete',
+  'add ', 'replace ', 'move ', 'cancel',
+];
+
+function gamLog(row) {
+  if (!supabase) return;
+  supabase.from('gam_audit').insert(row).then(({ error }) => {
+    if (error) console.error('[gam] audit insert failed:', error.message?.slice(0, 80));
+  });
+}
+
+// Run a GAM command via SSH to TDCC. Returns { stdout, stderr, exitCode, ms }.
+// Caller MUST validate verb + args via gamValidate before calling.
+async function gamExec(verb, args, meta = {}) {
+  const argStr = args.join(' ');
+  const fullCmd = `/home/neo/bin/gam7/gam ${verb} ${argStr}`.trim();
+  const sshTarget = process.env.GAM_SSH_TARGET || 'tdcc';
+  return new Promise((resolve) => {
+    const startedAt = Date.now();
+    const proc = spawn('ssh', [sshTarget, fullCmd], { timeout: 60_000 });
+    let stdout = '', stderr = '';
+    proc.stdout.on('data', d => { stdout += d.toString(); });
+    proc.stderr.on('data', d => { stderr += d.toString(); });
+    proc.on('close', code => {
+      const ms = Date.now() - startedAt;
+      gamLog({
+        from_agent: meta.from_agent || 'naca-app',
+        requested_by: meta.requested_by || null,
+        verb,
+        args: { argv: args },
+        exit_code: code,
+        output_summary: stdout.slice(0, 500),
+        ms_elapsed: ms,
+        error: code === 0 ? null : (stderr.slice(0, 500) || `exit ${code}`),
+      });
+      resolve({ stdout, stderr, exitCode: code, ms });
+    });
+    proc.on('error', err => {
+      const ms = Date.now() - startedAt;
+      gamLog({
+        from_agent: meta.from_agent || 'naca-app',
+        requested_by: meta.requested_by || null,
+        verb,
+        args: { argv: args },
+        exit_code: -1,
+        output_summary: null,
+        ms_elapsed: ms,
+        error: err.message?.slice(0, 500),
+      });
+      resolve({ stdout: '', stderr: err.message, exitCode: -1, ms });
+    });
+  });
+}
+
+function gamValidate(verb, args) {
+  if (!ALLOWED_GAM_VERBS.has(verb)) {
+    return { ok: false, reason: `verb '${verb}' not in allowlist` };
+  }
+  const flat = (args || []).join(' ').toLowerCase();
+  for (const tok of FORBIDDEN_GAM_TOKENS) {
+    if (flat.includes(tok)) return { ok: false, reason: `forbidden token '${tok.trim()}' in args` };
+  }
+  return { ok: true };
+}
+
+// Parse gam's CSV output (`gam redirect csv - print ...`) into [{...}, ...].
+// gam's print commands emit CSV with a header line. Trivial parser — no
+// fancy quote handling, since gam quotes consistently and we only need
+// fields that don't contain commas in practice.
+function parseGamCSV(stdout) {
+  const lines = stdout.split('\n').filter(l => l.trim());
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(',').map(h => h.trim());
+  return lines.slice(1).map(line => {
+    // CSV split that respects quoted fields
+    const cells = [];
+    let cur = '', inQ = false;
+    for (const ch of line) {
+      if (ch === '"') inQ = !inQ;
+      else if (ch === ',' && !inQ) { cells.push(cur); cur = ''; }
+      else cur += ch;
+    }
+    cells.push(cur);
+    const row = {};
+    headers.forEach((h, i) => { row[h] = (cells[i] || '').trim(); });
+    return row;
+  });
+}
+
 const UPLOAD_DIR = '/tmp/ccc-uploads';
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
@@ -218,6 +329,105 @@ const server = http.createServer(async (req, res) => {
         locks: locks.data || [],
       });
     } catch (e) { json(res, { error: e.message }, 500); }
+    return;
+  }
+
+  // =============================================
+  // GAM (Workspace gateway) — Phase 4b Step 1A
+  // Read-only endpoints. SSH→TDCC→gam→parse. Audited to neo-brain.gam_audit.
+  // Siti's tools call these endpoints, never SSH to TDCC directly.
+  // =============================================
+
+  // GET /api/gam/orgs — list all OUs (Org Units) in the Workspace
+  if (urlPath === '/api/gam/orgs' && req.method === 'GET') {
+    const meta = { from_agent: 'naca-app', requested_by: req.headers['x-requested-by'] || null };
+    const args = ['csv', '-', 'print', 'orgs'];
+    const v = gamValidate('redirect', args);
+    if (!v.ok) { json(res, { error: v.reason }, 400); return; }
+    const r = await gamExec('redirect', args, meta);
+    if (r.exitCode !== 0) { json(res, { error: r.stderr || 'gam failed', exitCode: r.exitCode }, 502); return; }
+    json(res, { orgs: parseGamCSV(r.stdout), count: parseGamCSV(r.stdout).length, ms: r.ms });
+    return;
+  }
+
+  // GET /api/gam/shareddrives — list all shared drives (paginated by gam itself)
+  if (urlPath === '/api/gam/shareddrives' && req.method === 'GET') {
+    const meta = { from_agent: 'naca-app', requested_by: req.headers['x-requested-by'] || null };
+    const args = ['csv', '-', 'print', 'shareddrives'];
+    const v = gamValidate('redirect', args);
+    if (!v.ok) { json(res, { error: v.reason }, 400); return; }
+    const r = await gamExec('redirect', args, meta);
+    if (r.exitCode !== 0) { json(res, { error: r.stderr || 'gam failed', exitCode: r.exitCode }, 502); return; }
+    const drives = parseGamCSV(r.stdout);
+    json(res, { drives, count: drives.length, ms: r.ms });
+    return;
+  }
+
+  // GET /api/gam/users?q=<search> — list/search Workspace users
+  if (urlPath === '/api/gam/users' && req.method === 'GET') {
+    const meta = { from_agent: 'naca-app', requested_by: req.headers['x-requested-by'] || null };
+    const q = (url.searchParams.get('q') || '').trim();
+    // Always run as `redirect csv - print users` so output is parseable
+    const args = ['csv', '-', 'print', 'users'];
+    if (q) {
+      // gam's `query` filter — we whitelist the q text and pass quoted
+      // Block any quote/semicolon to prevent escaping
+      if (/['";`$\\]/.test(q)) { json(res, { error: 'invalid characters in q' }, 400); return; }
+      args.push('query', `"name:${q}* OR email:${q}*"`);
+    }
+    const v = gamValidate('redirect', args);
+    if (!v.ok) { json(res, { error: v.reason }, 400); return; }
+    const r = await gamExec('redirect', args, meta);
+    if (r.exitCode !== 0) { json(res, { error: r.stderr || 'gam failed', exitCode: r.exitCode }, 502); return; }
+    const users = parseGamCSV(r.stdout);
+    json(res, { users, count: users.length, ms: r.ms });
+    return;
+  }
+
+  // GET /api/gam/files?q=<search>&user=<email> — search Drive files
+  // Defaults to searching Neo's drives if user unspecified.
+  if (urlPath === '/api/gam/files' && req.method === 'GET') {
+    const meta = { from_agent: 'naca-app', requested_by: req.headers['x-requested-by'] || null };
+    const q = (url.searchParams.get('q') || '').trim();
+    const user = (url.searchParams.get('user') || 'neo@todak.com').trim();
+    if (!q) { json(res, { error: 'q required (file name or content keyword)' }, 400); return; }
+    if (/['";`$\\]/.test(q) || /['";`$\\]/.test(user)) {
+      json(res, { error: 'invalid characters in q or user' }, 400); return;
+    }
+    // gam user <email> print filelist query "<q>" — emits CSV
+    const args = ['csv', '-', 'user', user, 'print', 'filelist',
+                  'query', `"name contains '${q}' or fullText contains '${q}'"`,
+                  'fields', 'id,name,mimeType,size,modifiedTime,owners,webViewLink'];
+    const v = gamValidate('redirect', args);
+    if (!v.ok) { json(res, { error: v.reason }, 400); return; }
+    const r = await gamExec('redirect', args, meta);
+    if (r.exitCode !== 0) { json(res, { error: r.stderr || 'gam failed', exitCode: r.exitCode }, 502); return; }
+    const files = parseGamCSV(r.stdout);
+    json(res, { files, count: files.length, ms: r.ms, searched_as: user });
+    return;
+  }
+
+  // GET /api/gam/file/:id?user=<email> — fetch file metadata + small text excerpt
+  // For text-like mimeTypes we pull a small excerpt; binary types return metadata only.
+  const fileMatch = urlPath.match(/^\/api\/gam\/file\/([A-Za-z0-9_-]+)$/);
+  if (fileMatch && req.method === 'GET') {
+    const meta = { from_agent: 'naca-app', requested_by: req.headers['x-requested-by'] || null };
+    const fileId = fileMatch[1];
+    const user = (url.searchParams.get('user') || 'neo@todak.com').trim();
+    if (/['";`$\\]/.test(user)) { json(res, { error: 'invalid characters in user' }, 400); return; }
+    // First: get metadata
+    const metaArgs = ['csv', '-', 'user', user, 'show', 'fileinfo', fileId,
+                      'fields', 'id,name,mimeType,size,modifiedTime,webViewLink'];
+    const v = gamValidate('redirect', metaArgs);
+    if (!v.ok) { json(res, { error: v.reason }, 400); return; }
+    const r = await gamExec('redirect', metaArgs, meta);
+    if (r.exitCode !== 0) { json(res, { error: r.stderr || 'gam failed', exitCode: r.exitCode }, 502); return; }
+    const rows = parseGamCSV(r.stdout);
+    if (!rows.length) { json(res, { error: 'file not found or no access' }, 404); return; }
+    const fileMeta = rows[0];
+    // For now we return metadata only; actual content fetch (gam user <u> get drivefile <id>)
+    // writes to disk — deferred. UI shows webViewLink as the practical action.
+    json(res, { file: fileMeta, ms: r.ms, accessed_as: user });
     return;
   }
 
