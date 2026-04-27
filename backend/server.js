@@ -370,10 +370,12 @@ const server = http.createServer(async (req, res) => {
     // Always run as `redirect csv - print users` so output is parseable
     const args = ['csv', '-', 'print', 'users'];
     if (q) {
-      // gam's `query` filter — we whitelist the q text and pass quoted
-      // Block any quote/semicolon to prevent escaping
+      // gam's `query` filter uses Directory API search. Valid fields are
+      // email, givenName, familyName. We default to email match — most
+      // common case. Caller can post-filter for fuzzier searches.
+      // Block any quote/semicolon to prevent escaping.
       if (/['";`$\\]/.test(q)) { json(res, { error: 'invalid characters in q' }, 400); return; }
-      args.push('query', `"name:${q}* OR email:${q}*"`);
+      args.push('query', `"email:${q}*"`);
     }
     const v = gamValidate('redirect', args);
     if (!v.ok) { json(res, { error: v.reason }, 400); return; }
