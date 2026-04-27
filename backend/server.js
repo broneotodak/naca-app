@@ -427,6 +427,117 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // GET /api/gam/file/:id/download?user=<email> — stream file bytes (Phase 4b Step 1B.5)
+  // Two-stage: (1) SSH to TDCC, gam download to mktemp dir, capture metadata
+  // (filename, size, full path); enforce 50MB cap. (2) SSH+cat to stream bytes
+  // back, then `rm -rf` the tmp dir on TDCC. Audited.
+  // Used by Siti's send_workspace_file_to_owner tool (recipient hardcoded
+  // to Neo's primary phone there) — never lands as bytes-on-disk on Siti
+  // VPS for longer than the wacli send_document call.
+  const downloadMatch = urlPath.match(/^\/api\/gam\/file\/([A-Za-z0-9_-]+)\/download$/);
+  if (downloadMatch && req.method === 'GET') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    const fileId = downloadMatch[1];
+    const user = (url.searchParams.get('user') || 'neo@todak.com').trim();
+    if (/['";`$\\\s]/.test(user)) { json(res, { error: 'invalid characters in user' }, 400); return; }
+    const meta = { from_agent: 'naca-app', requested_by: req.headers['x-requested-by'] || null };
+    const startedAt = Date.now();
+    const SIZE_CAP = 50 * 1024 * 1024; // 50 MB
+
+    // Stage script: download via gam, report metadata, leave file at known path.
+    // Single-quoted shell strings around interpolated values prevent expansion;
+    // both fileId and user are pre-validated regex-clean before we get here.
+    const stageScript = `
+set -e
+TMP=$(mktemp -d /tmp/naca-dl-XXXXXX)
+/home/neo/bin/gam7/gam user '${user}' get drivefile '${fileId}' targetfolder "$TMP" >/dev/null 2>&1 || (echo "ERROR:gam_failed" >&2; rm -rf "$TMP"; exit 1)
+F=$(ls "$TMP" 2>/dev/null | head -1)
+if [ -z "$F" ]; then rm -rf "$TMP"; echo "ERROR:no_file" >&2; exit 1; fi
+SIZE=$(stat -c%s "$TMP/$F")
+if [ "$SIZE" -gt ${SIZE_CAP} ]; then rm -rf "$TMP"; echo "ERROR:too_large_$SIZE" >&2; exit 1; fi
+echo "PATH=$TMP/$F"
+echo "FILENAME=$F"
+echo "SIZE=$SIZE"
+echo "TMPDIR=$TMP"
+`;
+    const stage = await new Promise((resolve) => {
+      const proc = spawn('ssh', ['tdcc', stageScript], { timeout: 120_000 });
+      let stdout = '', stderr = '';
+      proc.stdout.on('data', d => stdout += d.toString());
+      proc.stderr.on('data', d => stderr += d.toString());
+      proc.on('close', code => resolve({ stdout, stderr, code }));
+      proc.on('error', err => resolve({ stdout: '', stderr: err.message, code: -1 }));
+    });
+
+    if (stage.code !== 0) {
+      gamLog({ ...meta, verb: 'download', args: { argv: ['get', 'drivefile', fileId, 'user='+user] }, exit_code: stage.code, output_summary: null, ms_elapsed: Date.now() - startedAt, error: stage.stderr.slice(0, 500) });
+      const err = stage.stderr || '';
+      if (err.includes('too_large')) {
+        const m = err.match(/too_large_(\d+)/);
+        json(res, { error: 'file too large for WhatsApp transfer', size: m ? parseInt(m[1]) : null, max: SIZE_CAP, hint: 'use webViewLink instead' }, 413); return;
+      }
+      if (err.includes('no_file')) {
+        json(res, { error: 'no file downloaded — file not found, no access, or not a downloadable type' }, 404); return;
+      }
+      json(res, { error: err.slice(0, 200) || 'gam download failed', exitCode: stage.code }, 502); return;
+    }
+
+    // Parse PATH/FILENAME/SIZE/TMPDIR from stdout
+    const map = {};
+    for (const line of stage.stdout.split('\n')) {
+      const eq = line.indexOf('=');
+      if (eq > 0) map[line.slice(0, eq)] = line.slice(eq + 1);
+    }
+    const filePath = map.PATH;
+    const filename = map.FILENAME;
+    const size = parseInt(map.SIZE || '0');
+    const tmpdir = map.TMPDIR;
+    if (!filePath || !filename || !tmpdir) {
+      json(res, { error: 'malformed staging metadata', stdout: stage.stdout.slice(0, 200) }, 502); return;
+    }
+
+    // Stream phase: ssh+cat the file, then cleanup tmpdir on TDCC.
+    // Content-Disposition uses RFC 5987-safe ASCII fallback.
+    const safeName = filename.replace(/[^\w\s.\-()]/g, '_');
+    const ext = (filename.split('.').pop() || '').toLowerCase();
+    const mimeMap = {
+      pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+      gif: 'image/gif', svg: 'image/svg+xml', webp: 'image/webp',
+      mp3: 'audio/mpeg', mp4: 'video/mp4', mov: 'video/quicktime', m4a: 'audio/mp4',
+      ogg: 'audio/ogg', wav: 'audio/wav',
+      doc: 'application/msword',
+      docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      xls: 'application/vnd.ms-excel',
+      xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      ppt: 'application/vnd.ms-powerpoint',
+      pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      txt: 'text/plain', csv: 'text/csv', json: 'application/json',
+      zip: 'application/zip', tar: 'application/x-tar',
+    };
+    const contentType = mimeMap[ext] || 'application/octet-stream';
+
+    res.writeHead(200, {
+      'Content-Type': contentType,
+      'Content-Disposition': `attachment; filename="${safeName}"`,
+      'Content-Length': size,
+      'X-NACA-Filename': encodeURIComponent(filename),
+      'X-NACA-Source-User': user,
+      'X-NACA-File-Id': fileId,
+    });
+    // The cat+rm pattern: if cat succeeds, rm runs. If cat fails, tmpdir lingers
+    // on TDCC — accept this minor leak. A periodic /tmp cleanup pass on TDCC
+    // (anything matching /tmp/naca-dl-*) would mop them up; not critical for now.
+    const catScript = `cat '${filePath}' && rm -rf '${tmpdir}'`;
+    const cat = spawn('ssh', ['tdcc', catScript], { timeout: 180_000 });
+    cat.stdout.pipe(res);
+    cat.on('close', code => {
+      gamLog({ ...meta, verb: 'download', args: { argv: ['get', 'drivefile', fileId, 'user='+user, 'size='+size, 'name='+filename] }, exit_code: code, output_summary: `streamed ${size} bytes (${contentType})`, ms_elapsed: Date.now() - startedAt, error: code === 0 ? null : `cat exit ${code}` });
+      if (!res.writableEnded) res.end();
+    });
+    cat.on('error', () => { if (!res.writableEnded) res.end(); });
+    return;
+  }
+
   // GET /api/gam/file/:id?user=<email> — fetch file metadata + small text excerpt
   // For text-like mimeTypes we pull a small excerpt; binary types return metadata only.
   const fileMatch = urlPath.match(/^\/api\/gam\/file\/([A-Za-z0-9_-]+)$/);
