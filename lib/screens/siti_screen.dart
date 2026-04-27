@@ -24,6 +24,10 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
   List<Map<String, dynamic>> _recentMessages = [];
   List<Map<String, dynamic>> _contacts = [];
   Map<String, dynamic> _settings = {};
+  // Live Siti tools — fetched from /api/tools (dynamic since siti#19, derived
+  // from GEMINI_TOOLS at runtime). Replaces the hardcoded "17 TOOLS" list
+  // that drifted as new tools landed.
+  List<Map<String, dynamic>> _tools = [];
   bool _loading = true;
   String? _error;
   Timer? _timer;
@@ -67,6 +71,7 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
       // people list moved to MEM → PEOPLE tab (direct neo-brain); no longer fetched here
       final contactsData = await _fetchJson('/api/contacts');
       final settingsData = await _fetchJson('/api/settings');
+      final toolsData = await _fetchJson('/api/tools');
 
       if (mounted) {
         final merged = <String, dynamic>{
@@ -79,6 +84,7 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
           _messageOffset = _recentMessages.length;
           _hasMoreMessages = _recentMessages.length >= 50;
           _contacts = _safeList(contactsData, 'contacts');
+          _tools = _safeList(toolsData, 'tools');
           if (settingsData != null && settingsData['settings'] is Map) {
             _settings = Map<String, dynamic>.from(settingsData['settings'] as Map);
           }
@@ -384,25 +390,110 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
         _capCard('DALL-E 3', 'Image generation', HackerTheme.amber),
         const SizedBox(height: 16),
 
-        _section('17 TOOLS'),
-        _capCard('1. search_twin_memory', 'Search neo-brain memories (vector)', HackerTheme.green),
-        _capCard('2. save_twin_memory', 'Write to neo-brain (owner/admin only)', HackerTheme.green),
-        _capCard('3. update_contact', 'Change permission/persona/reply_mode', HackerTheme.cyan),
-        _capCard('4. get_contact_status', 'Lookup contact info', HackerTheme.cyan),
-        _capCard('5. search_person', 'Find known persons in graph', HackerTheme.cyan),
-        _capCard('6. list_known_persons', 'List all profiled identities', HackerTheme.cyan),
-        _capCard('7. send_whatsapp', 'Send text (resolves name→phone)', HackerTheme.green),
-        _capCard('8. send_voice_note', 'ElevenLabs AFIFAH → OGG Opus → WA PTT', HackerTheme.amber),
-        _capCard('9. generate_image', 'DALL-E 3 → WhatsApp image', HackerTheme.amber),
-        _capCard('10. save_face', 'InsightFace embedding → neo-brain', HackerTheme.amber),
-        _capCard('11. recognize_faces', 'Detect + match faces in photos', HackerTheme.amber),
-        _capCard('12. make_call', 'ElevenLabs AI call (MY +60360431442) + Telnyx TTS backup (owner only)', HackerTheme.red),
-        _capCard('13. check_agent_status', 'Query NACA agent fleet + command queue', HackerTheme.green),
-        _capCard('14. web_search', 'DuckDuckGo HTML scraping', HackerTheme.grey),
-        _capCard('15. search_conversations', 'Cross-chat history lookup', HackerTheme.grey),
-        _capCard('16. search_forex_signals', 'Query forex signals from contacts (Intan etc)', HackerTheme.amber),
-        _capCard('17. sync_whatsapp_contacts', 'Refresh contacts from WhatsApp', HackerTheme.grey),
+        ..._buildToolsSection(),
       ],
+    );
+  }
+
+  // ── Dynamic TOOLS section ──
+  // Sources from Siti's /api/tools (since siti#19 — derives from GEMINI_TOOLS
+  // at runtime so this list never drifts again). Groups by category, colors
+  // each card by category, shows total count + counts per group.
+  static const Map<String, Color> _toolCategoryColor = {
+    'memory': HackerTheme.green,
+    'identity': HackerTheme.cyan,
+    'contacts': HackerTheme.cyan,
+    'messaging': HackerTheme.amber,
+    'groups': HackerTheme.amber,
+    'agents': HackerTheme.green,
+    'workspace': HackerTheme.cyan,
+    'system': HackerTheme.grey,
+    'other': HackerTheme.grey,
+  };
+  static const List<String> _toolCategoryOrder = [
+    'memory', 'identity', 'contacts', 'agents',
+    'messaging', 'groups', 'workspace', 'system', 'other',
+  ];
+
+  List<Widget> _buildToolsSection() {
+    if (_tools.isEmpty) {
+      return [
+        _section('TOOLS'),
+        _capCard('(loading…)', 'Fetching live tool list from Siti', HackerTheme.grey),
+      ];
+    }
+    // Group by category
+    final byCategory = <String, List<Map<String, dynamic>>>{};
+    for (final t in _tools) {
+      final c = (t['category'] ?? 'other').toString();
+      byCategory.putIfAbsent(c, () => []).add(t);
+    }
+    final widgets = <Widget>[
+      _section('${_tools.length} TOOLS · live from Siti'),
+    ];
+    // Render in canonical order, then any unknown categories at the end
+    final seen = <String>{};
+    for (final cat in _toolCategoryOrder) {
+      final list = byCategory[cat];
+      if (list == null || list.isEmpty) continue;
+      seen.add(cat);
+      widgets.add(_toolCategoryHeader(cat, list.length));
+      for (final t in list) widgets.add(_toolCard(t));
+    }
+    for (final entry in byCategory.entries) {
+      if (seen.contains(entry.key)) continue;
+      widgets.add(_toolCategoryHeader(entry.key, entry.value.length));
+      for (final t in entry.value) widgets.add(_toolCard(t));
+    }
+    return widgets;
+  }
+
+  Widget _toolCategoryHeader(String category, int count) {
+    final color = _toolCategoryColor[category] ?? HackerTheme.grey;
+    return Padding(
+      padding: const EdgeInsets.only(top: 10, bottom: 4, left: 4),
+      child: Row(children: [
+        Container(width: 6, height: 6, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+        const SizedBox(width: 6),
+        Text(category.toUpperCase(), style: HackerTheme.monoNoGlow(size: 9, color: color)),
+        const SizedBox(width: 6),
+        Text('($count)', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.dimText)),
+      ]),
+    );
+  }
+
+  Widget _toolCard(Map<String, dynamic> tool) {
+    final id = (tool['id'] ?? '?').toString();
+    final desc = (tool['desc'] ?? '').toString();
+    final category = (tool['category'] ?? 'other').toString();
+    final enabled = tool['enabled'] != false;
+    final color = enabled
+        ? (_toolCategoryColor[category] ?? HackerTheme.grey)
+        : HackerTheme.dimText;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 4),
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+      decoration: BoxDecoration(
+        color: HackerTheme.bgCard,
+        border: Border(left: BorderSide(color: color, width: 2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Expanded(child: Text(id, style: HackerTheme.monoNoGlow(size: 11, color: color))),
+            if (!enabled) Container(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+              decoration: BoxDecoration(border: Border.all(color: HackerTheme.red)),
+              child: Text('DISABLED', style: HackerTheme.monoNoGlow(size: 7, color: HackerTheme.red)),
+            ),
+          ]),
+          if (desc.isNotEmpty) Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text(desc, style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.grey)),
+          ),
+        ],
+      ),
     );
   }
 
