@@ -417,9 +417,11 @@ const server = http.createServer(async (req, res) => {
     const fileId = fileMatch[1];
     const user = (url.searchParams.get('user') || 'neo@todak.com').trim();
     if (/['";`$\\]/.test(user)) { json(res, { error: 'invalid characters in user' }, 400); return; }
-    // First: get metadata
-    const metaArgs = ['csv', '-', 'user', user, 'show', 'fileinfo', fileId,
-                      'fields', 'id,name,mimeType,size,modifiedTime,webViewLink'];
+    // Use `print filelist select <id>` — emits clean CSV like the search
+    // endpoint, vs `show fileinfo` which uses a different output format.
+    if (!/^[A-Za-z0-9_-]+$/.test(fileId)) { json(res, { error: 'invalid file id' }, 400); return; }
+    const metaArgs = ['csv', '-', 'user', user, 'print', 'filelist', 'select', fileId,
+                      'fields', 'id,name,mimeType,size,modifiedTime,owners,webViewLink'];
     const v = gamValidate('redirect', metaArgs);
     if (!v.ok) { json(res, { error: v.reason }, 400); return; }
     const r = await gamExec('redirect', metaArgs, meta);
