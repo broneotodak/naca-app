@@ -1567,6 +1567,10 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
     final caption = (m['caption'] ?? '').toString();
     final personName = (m['person_name'] ?? '').toString();
     final source = (m['source'] ?? '').toString();
+    // Use NACA's HTTPS proxy for image bytes — avoids mixed-content (Siti's
+    // signed_url points at http://100.85.18.97:9000/... which Chrome blocks).
+    final mediaId = (m['id'] ?? '').toString();
+    final blobUrl = mediaId.isNotEmpty ? '${AppConfig.apiBaseUrl}/api/media/$mediaId/blob' : '';
     final signedUrl = (m['signed_url'] ?? '').toString();
     final bytes = (m['bytes'] is num) ? (m['bytes'] as num).toInt() : 0;
     final createdAt = m['created_at']?.toString();
@@ -1645,14 +1649,15 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
                   ),
                 ]),
               ),
-            // Image preview
-            if (kind == 'image' && hasSigned) Padding(
+            // Image preview — render via NACA blob proxy (HTTPS, no mixed-content)
+            if (kind == 'image' && blobUrl.isNotEmpty) Padding(
               padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
               child: ClipRect(
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxHeight: 220),
                   child: Image.network(
-                    signedUrl,
+                    blobUrl,
+                    headers: {'Authorization': 'Bearer ${AppConfig.authToken}'},
                     fit: BoxFit.cover,
                     width: double.infinity,
                     loadingBuilder: (ctx, child, prog) => prog == null
@@ -1725,12 +1730,16 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
 
   void _openMedia(Map<String, dynamic> m) {
     final kind = (m['kind'] ?? '').toString();
-    final url = (m['signed_url'] ?? '').toString();
-    if (url.isEmpty) return;
+    final mediaId = (m['id'] ?? '').toString();
+    if (mediaId.isEmpty) return;
     if (kind == 'image') {
       _showImageViewer(m);
     } else {
-      _launchExternal(url);
+      // For audio/video, opening the raw signed_url externally still works
+      // since the system browser/player isn't bound by HTTPS-page rules.
+      // Fall back to NACA blob URL if signed_url missing.
+      final url = (m['signed_url'] ?? '').toString();
+      _launchExternal(url.isNotEmpty ? url : '${AppConfig.apiBaseUrl}/api/media/$mediaId/blob');
     }
   }
 
@@ -1750,7 +1759,10 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
   }
 
   void _showImageViewer(Map<String, dynamic> m) {
-    final url = (m['signed_url'] ?? '').toString();
+    final mediaId = (m['id'] ?? '').toString();
+    // Use NACA blob proxy for inline render (HTTPS, browser-safe)
+    final url = mediaId.isNotEmpty ? '${AppConfig.apiBaseUrl}/api/media/$mediaId/blob' : (m['signed_url'] ?? '').toString();
+    final externalUrl = (m['signed_url'] ?? '').toString(); // for "open in new tab" — that one can be the raw signed URL
     final caption = (m['caption'] ?? '').toString();
     final personName = (m['person_name'] ?? '').toString();
     showDialog(
@@ -1779,7 +1791,7 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
                   style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.cyan),
                 )),
                 GestureDetector(
-                  onTap: () => _launchExternal(url),
+                  onTap: () => _launchExternal(externalUrl.isNotEmpty ? externalUrl : url),
                   child: const Padding(
                     padding: EdgeInsets.symmetric(horizontal: 6),
                     child: Icon(Icons.open_in_new, size: 16, color: HackerTheme.green),
@@ -1797,6 +1809,7 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
                 maxScale: 5,
                 child: Image.network(
                   url,
+                  headers: {'Authorization': 'Bearer ${AppConfig.authToken}'},
                   fit: BoxFit.contain,
                   errorBuilder: (ctx, _, __) => Padding(
                     padding: const EdgeInsets.all(24),

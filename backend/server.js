@@ -16,6 +16,70 @@ if (process.env.NEO_BRAIN_URL && process.env.NEO_BRAIN_SERVICE_ROLE_KEY) {
   console.log('[NACA] Supabase connected to neo-brain');
 }
 
+// === MinIO media bytes — fixes mixed-content for browser image render ======
+// Pulls minio-nas creds from neo-brain credentials vault on boot. Replicates
+// Siti's s3SignedGet helper (SigV4 presigned GET) so we can sign URLs without
+// going through Siti. Used by /api/media/:id/blob to fetch MinIO bytes
+// server-side (HTTP fine on Tailscale) and stream them over HTTPS to the
+// browser — avoids the http://100.85.18.97:9000/... URLs that Chrome blocks
+// on a https://naca.neotodak.com page.
+let minioCfg = null;
+async function loadMinioCfg() {
+  if (!supabase) return;
+  try {
+    const { data, error } = await supabase.rpc('get_credential', {
+      p_owner_id: '00000000-0000-0000-0000-000000000001',
+      p_service: 'minio-nas',
+      p_credential_type: 'sdk_service_account',
+    });
+    if (error) { console.error('[minio] vault fetch failed:', error.message); return; }
+    if (!data?.[0]?.credential_value) { console.error('[minio] no credential value'); return; }
+    minioCfg = JSON.parse(data[0].credential_value);
+    console.log('[minio] config loaded — endpoint=' + minioCfg.endpoint + ' bucket=' + minioCfg.bucket);
+  } catch (e) { console.error('[minio] cfg load error:', e.message); }
+}
+loadMinioCfg();
+
+function _s3SigningKey(secret, dateStamp, region) {
+  const kDate = crypto.createHmac('sha256', 'AWS4' + secret).update(dateStamp).digest();
+  const kRegion = crypto.createHmac('sha256', kDate).update(region).digest();
+  const kService = crypto.createHmac('sha256', kRegion).update('s3').digest();
+  return crypto.createHmac('sha256', kService).update('aws4_request').digest();
+}
+function s3SignedGet(storageUrlOrKey, expiresIn = 900) {
+  if (!minioCfg) return null;
+  let key = storageUrlOrKey;
+  if (storageUrlOrKey.startsWith('http')) {
+    const u = new URL(storageUrlOrKey);
+    const prefix = (minioCfg.pathStyle === false) ? '/' : `/${minioCfg.bucket}/`;
+    if (u.pathname.startsWith(prefix)) key = decodeURIComponent(u.pathname.slice(prefix.length));
+    else key = decodeURIComponent(u.pathname.slice(1));
+  }
+  const amzDate = new Date().toISOString().replace(/[:-]/g, '').replace(/\..{3}/, '');
+  const dateStamp = amzDate.slice(0, 8);
+  const credential = `${minioCfg.accessKeyId}/${dateStamp}/${minioCfg.region}/s3/aws4_request`;
+  const canonicalUri = (minioCfg.pathStyle === false) ? `/${encodeURI(key)}` : `/${minioCfg.bucket}/${encodeURI(key)}`;
+  const host = (minioCfg.pathStyle === false)
+    ? `${minioCfg.bucket}.${new URL(minioCfg.endpoint).host}`
+    : new URL(minioCfg.endpoint).host;
+  const query = new URLSearchParams({
+    'X-Amz-Algorithm': 'AWS4-HMAC-SHA256',
+    'X-Amz-Credential': credential,
+    'X-Amz-Date': amzDate,
+    'X-Amz-Expires': String(expiresIn),
+    'X-Amz-SignedHeaders': 'host',
+  });
+  const cr = ['GET', canonicalUri, query.toString(), `host:${host}\n`, 'host', 'UNSIGNED-PAYLOAD'].join('\n');
+  const scope = `${dateStamp}/${minioCfg.region}/s3/aws4_request`;
+  const sts = ['AWS4-HMAC-SHA256', amzDate, scope, crypto.createHash('sha256').update(cr).digest('hex')].join('\n');
+  const sig = crypto.createHmac('sha256', _s3SigningKey(minioCfg.secretAccessKey, dateStamp, minioCfg.region)).update(sts).digest('hex');
+  query.set('X-Amz-Signature', sig);
+  const baseUrl = (minioCfg.pathStyle === false)
+    ? minioCfg.endpoint.replace('://', `://${minioCfg.bucket}.`)
+    : minioCfg.endpoint.replace(/\/$/, '');
+  return `${baseUrl}${canonicalUri}?${query.toString()}`;
+}
+
 // === GAM (Google Apps Manager) wrapper — Phase 4b Step 1A ==================
 // Centralized Workspace gateway. Every /api/gam/* endpoint funnels through
 // gamExec, which:
@@ -561,6 +625,49 @@ echo "TMPDIR=$TMP"
     // For now we return metadata only; actual content fetch (gam user <u> get drivefile <id>)
     // writes to disk — deferred. UI shows webViewLink as the practical action.
     json(res, { file: fileMeta, ms: r.ms, accessed_as: user });
+    return;
+  }
+
+  // GET /api/media/:id/blob — stream MinIO bytes over HTTPS
+  // Fixes mixed-content: browsers refuse http://100.85.18.97:9000/... signed URLs
+  // when the page is HTTPS. We sign + fetch server-side (HTTP fine on Tailscale)
+  // and stream the bytes to the client over HTTPS.
+  const mediaBlob = urlPath.match(/^\/api\/media\/([0-9a-f-]{36})\/blob$/);
+  if (mediaBlob && req.method === 'GET') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    if (!minioCfg) { json(res, { error: 'minio not configured (vault load pending or failed)' }, 503); return; }
+    const mediaId = mediaBlob[1];
+    try {
+      const { data: row, error } = await supabase.from('media')
+        .select('id, kind, mime_type, bytes, storage_url')
+        .eq('id', mediaId)
+        .maybeSingle();
+      if (error || !row) { json(res, { error: 'media not found' }, 404); return; }
+      const signedUrl = s3SignedGet(row.storage_url, 60);
+      if (!signedUrl) { json(res, { error: 'failed to sign url' }, 500); return; }
+      // Server-side fetch from MinIO (plain HTTP via Tailscale is fine here)
+      const upstream = await new Promise((resolve, reject) => {
+        const r = http.get(signedUrl, { timeout: 30_000 }, resolve);
+        r.on('error', reject);
+        r.on('timeout', () => { r.destroy(); reject(new Error('upstream timeout')); });
+      });
+      if (upstream.statusCode !== 200) {
+        let body = '';
+        upstream.on('data', c => body += c);
+        upstream.on('end', () => json(res, { error: 'minio fetch failed', status: upstream.statusCode, body: body.slice(0, 200) }, 502));
+        return;
+      }
+      res.writeHead(200, {
+        'Content-Type': row.mime_type || upstream.headers['content-type'] || 'application/octet-stream',
+        'Content-Length': upstream.headers['content-length'] || row.bytes || '',
+        'Cache-Control': 'private, max-age=300',
+        'X-NACA-Media-Id': mediaId,
+        'X-NACA-Media-Kind': row.kind || '',
+      });
+      upstream.pipe(res);
+    } catch (e) {
+      json(res, { error: e.message }, 500);
+    }
     return;
   }
 
