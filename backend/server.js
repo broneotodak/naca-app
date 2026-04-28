@@ -784,6 +784,173 @@ echo "TMPDIR=$TMP"
   }
 
   // =============================================
+  // CONTENT DRAFTS — Phase 5c
+  // Drafts come from CLAW daily-content generator (and future sources).
+  // Operator reviews in NACA SCHED → DRAFTS lane → APPROVE/EDIT/REJECT.
+  // On approve, we insert into scheduled_actions (action_kind='agent_command'
+  // to_agent='claw-mac' command='post_to_<channel>') and link the draft via
+  // scheduled_action_id. timekeeper fires the action at the chosen fire_at.
+  // =============================================
+
+  // GET /api/content-drafts?status=&since=&limit=
+  if (urlPath === '/api/content-drafts' && req.method === 'GET') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    try {
+      const status = url.searchParams.get('status'); // pending_approval|approved|rejected|...
+      const since = url.searchParams.get('since');
+      const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') || '50'), 1), 200);
+      let q = supabase.from('content_drafts').select('*').order('created_at', { ascending: false }).limit(limit);
+      if (status) q = q.eq('status', status);
+      if (since) q = q.gte('created_at', since);
+      const { data, error } = await q;
+      if (error) throw error;
+      // Stats per status for the UI
+      const counts = await Promise.all([
+        supabase.from('content_drafts').select('id', { count: 'exact', head: true }).eq('status', 'pending_approval'),
+        supabase.from('content_drafts').select('id', { count: 'exact', head: true }).eq('status', 'approved'),
+        supabase.from('content_drafts').select('id', { count: 'exact', head: true }).eq('status', 'rejected'),
+      ]);
+      json(res, {
+        drafts: data || [],
+        stats: {
+          pending: counts[0].count || 0,
+          approved: counts[1].count || 0,
+          rejected: counts[2].count || 0,
+        },
+      });
+    } catch (e) { json(res, { error: e.message }, 500); }
+    return;
+  }
+
+  // PATCH /api/content-drafts/:id — edit caption (only on pending_approval)
+  const draftEdit = urlPath.match(/^\/api\/content-drafts\/([0-9a-f-]{36})$/);
+  if (draftEdit && req.method === 'PATCH') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    const id = draftEdit[1];
+    readBody(req, async (body) => {
+      try {
+        const patch = {};
+        if ('caption' in body) patch.caption = body.caption?.toString() || '';
+        if (!Object.keys(patch).length) { json(res, { error: 'no editable fields in body' }, 400); return; }
+        const { data, error } = await supabase.from('content_drafts')
+          .update(patch).eq('id', id).eq('status', 'pending_approval')
+          .select().single();
+        if (error) {
+          if (error.code === 'PGRST116') { json(res, { error: 'draft not editable (already approved/rejected or not found)' }, 409); return; }
+          throw error;
+        }
+        json(res, { ok: true, draft: data });
+      } catch (e) { json(res, { error: e.message }, 500); }
+    });
+    return;
+  }
+
+  // POST /api/content-drafts/:id/approve  body: { channels: ['linkedin',...], fire_at: ISO }
+  const draftApprove = urlPath.match(/^\/api\/content-drafts\/([0-9a-f-]{36})\/approve$/);
+  if (draftApprove && req.method === 'POST') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    const draftId = draftApprove[1];
+    readBody(req, async (body) => {
+      try {
+        const channels = Array.isArray(body.channels) ? body.channels : [];
+        const allowedCh = ['linkedin', 'instagram', 'threads', 'tiktok', 'twitter', 'x'];
+        const cleanCh = channels.map(c => c.toString().toLowerCase()).filter(c => allowedCh.includes(c));
+        if (!cleanCh.length) { json(res, { error: `channels required (subset of ${allowedCh.join(', ')})` }, 400); return; }
+        const fireAtRaw = (body.fire_at || '').toString().trim();
+        if (!fireAtRaw) { json(res, { error: 'fire_at required' }, 400); return; }
+        const fireAt = new Date(fireAtRaw);
+        if (isNaN(fireAt.getTime())) { json(res, { error: 'fire_at not valid ISO 8601' }, 400); return; }
+        if (fireAt.getTime() <= Date.now() - 60_000) {
+          // allow tiny clock drift but reject "post 5 minutes ago"
+          json(res, { error: 'fire_at must be now or future' }, 400); return;
+        }
+
+        // 1. Fetch the draft
+        const { data: draft, error: dErr } = await supabase.from('content_drafts')
+          .select('*').eq('id', draftId).maybeSingle();
+        if (dErr) throw dErr;
+        if (!draft) { json(res, { error: 'draft not found' }, 404); return; }
+        if (draft.status !== 'pending_approval') {
+          json(res, { error: `draft is ${draft.status}, can't re-approve` }, 409); return;
+        }
+
+        // 2. Insert a scheduled_action per channel (claw-mac dispatch).
+        // Each platform gets its own scheduled_action so partial-success
+        // (e.g. LinkedIn ok, IG fails) is visible per row.
+        const mediaPath = (draft.media_paths?.[0]?.path) || null;
+        const mediaKind = (draft.media_paths?.[0]?.kind) || 'video';
+        const insertedActions = [];
+        for (const channel of cleanCh) {
+          const desc = `${channel} post: ${(draft.caption || '').slice(0, 50)}`;
+          const { data: act, error: aErr } = await supabase.from('scheduled_actions').insert({
+            fire_at: fireAt.toISOString(),
+            action_kind: 'agent_command',
+            action_payload: {
+              from_agent: 'naca-app',
+              to_agent: 'claw-mac',
+              command: `post_to_${channel}`,
+              payload: {
+                caption: draft.caption,
+                media_path: mediaPath,
+                media_kind: mediaKind,
+                media_host: 'claw-mac',
+                draft_id: draftId,
+                idempotency_key: `draft-${draftId}-${channel}`,
+              },
+            },
+            status: 'scheduled',
+            created_by: 'naca:operator',
+            owner_subject_id: draft.owner_subject_id,
+            description: desc,
+          }).select().single();
+          if (aErr) throw aErr;
+          insertedActions.push(act);
+        }
+
+        // 3. Mark draft approved + link to first scheduled_action_id
+        const { data: updated, error: uErr } = await supabase.from('content_drafts').update({
+          status: 'approved',
+          approved_at: new Date().toISOString(),
+          approved_by: 'naca:operator',
+          channels: cleanCh,
+          scheduled_for: fireAt.toISOString(),
+          scheduled_action_id: insertedActions[0].id,
+        }).eq('id', draftId).select().single();
+        if (uErr) throw uErr;
+
+        json(res, { ok: true, draft: updated, scheduled_actions: insertedActions }, 201);
+      } catch (e) { json(res, { error: e.message }, 500); }
+    });
+    return;
+  }
+
+  // POST /api/content-drafts/:id/reject  body: { reason }
+  const draftReject = urlPath.match(/^\/api\/content-drafts\/([0-9a-f-]{36})\/reject$/);
+  if (draftReject && req.method === 'POST') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    const id = draftReject[1];
+    readBody(req, async (body) => {
+      try {
+        const reason = (body.reason || '').toString().slice(0, 200) || null;
+        const { data, error } = await supabase.from('content_drafts')
+          .update({
+            status: 'rejected',
+            rejected_at: new Date().toISOString(),
+            rejected_reason: reason,
+          })
+          .eq('id', id).eq('status', 'pending_approval')
+          .select().single();
+        if (error) {
+          if (error.code === 'PGRST116') { json(res, { error: 'draft not rejectable (already approved/rejected or not found)' }, 409); return; }
+          throw error;
+        }
+        json(res, { ok: true, draft: data });
+      } catch (e) { json(res, { error: e.message }, 500); }
+    });
+    return;
+  }
+
+  // =============================================
   // SCHEDULED ACTIONS — operator cockpit for timekeeper queue
   // =============================================
 
