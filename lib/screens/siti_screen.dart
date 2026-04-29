@@ -906,11 +906,16 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
     final permColor = switch (permission) {
       'owner' => HackerTheme.green,
       'admin' => HackerTheme.cyan,
+      'developer' => HackerTheme.amber,
       'chat' => HackerTheme.white,
       'limited' => HackerTheme.amber,
       'blocked' => HackerTheme.red,
       _ => HackerTheme.grey,
     };
+    // For developer role: show project_scope as small chip-list under permission badge.
+    final projectScope = (contact['project_scope'] is List)
+        ? List<String>.from((contact['project_scope'] as List).map((e) => e.toString()))
+        : <String>[];
 
     return GestureDetector(
       onTap: () => _showEditContactDialog(contact),
@@ -930,6 +935,16 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
                   Text(name.toString(), style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.white)),
                   if (phone.toString().isNotEmpty)
                     Text(phone.toString(), style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.grey)),
+                  if (permission == 'developer' && projectScope.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        'scope: ${projectScope.join(", ")}',
+                        style: HackerTheme.monoNoGlow(size: 7, color: HackerTheme.amber),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -1014,6 +1029,12 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
     final personaCtrl = TextEditingController(text: contact['persona_override']?.toString() ?? '');
     String permission = (contact['permission'] ?? 'chat').toString();
     bool autoReply = contact['auto_reply_enabled'] == true;
+    // project_scope: a comma-separated text input, applies only when permission='developer'.
+    // text[] from Postgres comes through as List<dynamic>; coerce to strings safely.
+    final initialScope = (contact['project_scope'] is List)
+        ? List<String>.from((contact['project_scope'] as List).map((e) => e.toString()))
+        : <String>[];
+    final scopeCtrl = TextEditingController(text: initialScope.join(', '));
     bool saving = false;
 
     showDialog(
@@ -1041,6 +1062,15 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
                 _dialogTextField(nameCtrl, 'Name'),
                 const SizedBox(height: 12),
                 _permissionDropdown(permission, (v) => setDialogState(() => permission = v)),
+                if (permission == 'developer') ...[
+                  const SizedBox(height: 12),
+                  _dialogTextField(scopeCtrl, 'Project scope (comma-separated, e.g. todak-academy-v2, presentation)'),
+                  const SizedBox(height: 4),
+                  Text(
+                    '↳ developer can only request changes for these project codes. Empty = no access.',
+                    style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText),
+                  ),
+                ],
                 const SizedBox(height: 12),
                 Row(
                   children: [
@@ -1072,9 +1102,20 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
             TextButton(
               onPressed: saving ? null : () async {
                 setDialogState(() => saving = true);
+                // Parse comma-separated project scope into clean text[].
+                // Only sent for developer permission; backend (Siti) ignores
+                // it for other roles, but no point shipping noise.
+                final scopeList = permission == 'developer'
+                    ? scopeCtrl.text
+                        .split(',')
+                        .map((s) => s.trim())
+                        .where((s) => s.isNotEmpty)
+                        .toList()
+                    : <String>[];
                 final result = await _postJson('/api/contacts/$id', {
                   'name': nameCtrl.text.trim(),
                   'permission': permission,
+                  'project_scope': scopeList,
                   'auto_reply_enabled': autoReply,
                   'persona_override': personaCtrl.text.trim(),
                 }, method: 'PATCH');
@@ -1249,12 +1290,14 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
         enabledBorder: const UnderlineInputBorder(borderSide: BorderSide(color: HackerTheme.borderDim)),
         focusedBorder: const UnderlineInputBorder(borderSide: BorderSide(color: HackerTheme.green)),
       ),
-      items: ['owner', 'admin', 'chat', 'limited', 'blocked'].map((p) {
+      items: ['owner', 'admin', 'developer', 'chat', 'limited', 'readonly', 'blocked'].map((p) {
         final c = switch (p) {
           'owner' => HackerTheme.green,
           'admin' => HackerTheme.cyan,
+          'developer' => HackerTheme.amber,
           'blocked' => HackerTheme.red,
           'limited' => HackerTheme.amber,
+          'readonly' => HackerTheme.grey,
           _ => HackerTheme.white,
         };
         return DropdownMenuItem(value: p, child: Text(p.toUpperCase(), style: HackerTheme.monoNoGlow(size: 10, color: c)));
