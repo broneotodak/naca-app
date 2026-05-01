@@ -540,6 +540,98 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // GET /api/gam/users-quota?limit=N&domain=todak.com&org_unit=/path
+  // Top N Workspace users by Drive storage used. Wraps `gam report users`
+  // (Admin Reports API). Optional filters:
+  //   domain    — restrict to one email domain (e.g. todak.com filters out
+  //               @hyleen.my, @todak.id since the Workspace hosts multiple
+  //               companies). Post-filter on email suffix, case-insensitive.
+  //   org_unit  — passed through as `gam report users orgunitpath <path>`.
+  //               More precise than domain (e.g. "/Todak Studios/Engineering")
+  //               but caller must know the exact OU path.
+  if (urlPath === '/api/gam/users-quota' && req.method === 'GET') {
+    const meta = { from_agent: 'naca-app', requested_by: req.headers['x-requested-by'] || null };
+    const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') || '10'), 1), 50);
+    const domain = (url.searchParams.get('domain') || '').trim().toLowerCase().replace(/^@/, '');
+    const orgUnit = (url.searchParams.get('org_unit') || '').trim();
+    // GAM's per-user drive storage report: `gam all users print drivequota`
+    // emits CSV with: User, Drive Used (GB), Drive Used (Bytes), Total quota, etc.
+    // We scan all rows + sort by bytes desc.
+    // Validate org_unit early
+    if (orgUnit && /['";`$\\]/.test(orgUnit)) {
+      json(res, { error: 'invalid characters in org_unit' }, 400); return;
+    }
+    // GAM's Admin Reports API doesn't support OU filtering server-side, so
+    // when org_unit is set, fetch the user→OU map first via `print users` and
+    // post-filter. When org_unit is empty, skip that query (faster).
+    let ouByEmail = null;
+    if (orgUnit) {
+      const ouArgs = ['csv', '-', 'print', 'users', 'fields', 'primaryEmail,orgUnitPath'];
+      const ouVal = gamValidate('redirect', ouArgs);
+      if (!ouVal.ok) { json(res, { error: ouVal.reason }, 400); return; }
+      const ouRun = await gamExec('redirect', ouArgs, meta);
+      if (ouRun.exitCode !== 0) { json(res, { error: 'gam OU query failed: ' + ouRun.stderr.slice(0, 200), exitCode: ouRun.exitCode }, 502); return; }
+      const ouRows = parseGamCSV(ouRun.stdout);
+      ouByEmail = {};
+      for (const u of ouRows) {
+        const email = (u.primaryEmail || u.email || '').toLowerCase();
+        const path = u.orgUnitPath || u.orgUnit || '';
+        if (email) ouByEmail[email] = path;
+      }
+    }
+    // Now the bulk quota report (no OU filter — that's done client-side)
+    const args = ['csv', '-', 'report', 'users', 'parameters',
+      'accounts:total_quota_in_mb,accounts:used_quota_in_mb,accounts:drive_used_quota_in_mb,accounts:gmail_used_quota_in_mb,accounts:gplus_photos_used_quota_in_mb'];
+    const v = gamValidate('redirect', args);
+    if (!v.ok) { json(res, { error: v.reason }, 400); return; }
+    const r = await gamExec('redirect', args, meta);
+    if (r.exitCode !== 0) { json(res, { error: r.stderr || 'gam failed', exitCode: r.exitCode }, 502); return; }
+    const rows = parseGamCSV(r.stdout);
+    // Headers vary by GAM version. Detect:
+    //   email column   → "User", "Email", "primaryEmail"
+    //   bytes column   → "usage.driveUsedInBytes", "Drive Used (Bytes)", "totalUsageBytes" etc.
+    const sample = rows[0] || {};
+    const emailKey = Object.keys(sample).find(k => /^(user|primaryemail|email)$/i.test(k)) || 'email';
+    // Admin Reports API columns end in _in_mb / _in_kb / _in_bytes; pick the
+    // most relevant Drive column and normalize units.
+    const driveKey = Object.keys(sample).find(k => /drive.*used.*quota/i.test(k));
+    const totalKey = Object.keys(sample).find(k => /^accounts:used_quota/i.test(k));
+    const quotaKey = driveKey || totalKey;
+    const unitMultiplier = quotaKey?.includes('_in_mb') ? 1024 * 1024
+                         : quotaKey?.includes('_in_kb') ? 1024
+                         : 1;
+    let ranked = rows.map(row => {
+      const raw = parseInt(row[quotaKey] || '0') || 0;
+      const bytes = raw * unitMultiplier;
+      const email = row[emailKey];
+      return {
+        email,
+        bytes_used: bytes,
+        gb_used: +(bytes / 1e9).toFixed(2),
+        org_unit: ouByEmail ? (ouByEmail[email?.toLowerCase()] || null) : undefined,
+      };
+    }).filter(r => r.email && r.bytes_used > 0);
+    if (domain) {
+      ranked = ranked.filter(r => r.email.toLowerCase().endsWith('@' + domain));
+    }
+    if (orgUnit) {
+      // Match exact path or any descendant ("/Todak Studios" matches "/Todak Studios/Engineering")
+      const ouLc = orgUnit.toLowerCase();
+      ranked = ranked.filter(r => {
+        const u = (r.org_unit || '').toLowerCase();
+        return u === ouLc || u.startsWith(ouLc + '/');
+      });
+    }
+    ranked = ranked.sort((a, b) => b.bytes_used - a.bytes_used).slice(0, limit);
+    json(res, {
+      top_users: ranked,
+      total_users_scanned: rows.length,
+      filtered_by: { domain: domain || null, org_unit: orgUnit || null },
+      email_field: emailKey, quota_field: quotaKey, unit_multiplier: unitMultiplier, ms: r.ms,
+    });
+    return;
+  }
+
   // GET /api/gam/users?q=<search> — list/search Workspace users
   if (urlPath === '/api/gam/users' && req.method === 'GET') {
     const meta = { from_agent: 'naca-app', requested_by: req.headers['x-requested-by'] || null };
