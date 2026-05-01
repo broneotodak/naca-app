@@ -3,6 +3,11 @@ name: Build Windows
 on:
   push:
     branches: [main]
+    paths:
+      - 'lib/**'
+      - 'pubspec.*'
+      - 'windows/**'
+      - '.github/workflows/build-windows.yml'
   workflow_dispatch:  # manual trigger
 
 jobs:
@@ -13,6 +18,7 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
+          flutter-version: '3.41.7'
           channel: stable
 
       - name: Enable Windows desktop
