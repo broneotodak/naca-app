@@ -1471,32 +1471,38 @@ function handleGithubWebhook(req, res) {
       try { payload = JSON.parse(raw); } catch { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end('{"error":"bad json"}'); return; }
 
       const repo = payload.repository?.full_name || 'unknown';
-      const commands = []; // collect what to insert
+      const commands = []; // routes to agent_commands (only for direct, known-command targets)
+      const intents  = []; // routes to agent_intents (planner decomposes into known commands)
 
-      // ── event mappings (Phase 2 baseline; Phase 3 will tune routing) ──
+      // ── event mappings ─────────────────────────────────────────────────
+      // Routing rule:
+      //   Direct → commands: only when we KNOW the receiving agent + command
+      //     (currently just reviewer/review_pr for opened PRs).
+      //   Indirect → intents: anything where the right agent + sub-command
+      //     should be decided by the planner. This avoids the "stuck command"
+      //     class of bug where webhooks queued commands no agent accepts.
+      //
       switch (event) {
         case 'push': {
-          // Push to main on a deploy-tracked repo → notify deploy worker
+          // Push to main = "something landed on main, decide if any follow-up needed"
           const branch = (payload.ref || '').replace('refs/heads/', '');
           if (branch === 'main' || branch === 'master') {
-            commands.push({
-              from_agent: 'github-actions',
-              to_agent: 'dev-agent',
-              command: 'on_main_push',
-              payload: { repo, branch, commits: payload.commits?.length || 0, head_commit: payload.head_commit?.id, message: payload.head_commit?.message },
-              priority: 4,
+            const head = payload.head_commit;
+            intents.push({
+              source: 'github_webhook',
+              reporter: head?.author?.username || head?.author?.name || 'github-actions',
+              raw_text: `[github] push to ${repo}@${branch} — ${payload.commits?.length || 0} commit(s). HEAD: "${(head?.message || '').slice(0, 200)}". Decide whether any follow-up agent action is needed (likely no-op for routine merges; investigate if commit indicates a fix that needs verification).`,
+              source_ref: JSON.stringify({ event: 'push', repo, branch, head_sha: head?.id, commits_count: payload.commits?.length || 0 }),
             });
           }
           break;
         }
         case 'pull_request': {
-          // Opened / synchronized → reviewer should look at it.
-          // Contract from /home/openclaw/reviewer-agent/index.js:
-          //   to_agent='reviewer' (NOT 'reviewer-agent'), command='review_pr',
-          //   payload requires { project, repo, branch }.
+          // Opened / synchronized → reviewer (DIRECT — known agent + command).
+          // Contract: to_agent='reviewer', command='review_pr', payload needs { project, repo, branch }.
           if (['opened', 'synchronize', 'reopened', 'ready_for_review'].includes(payload.action)) {
-            const project = repo.split('/').pop() || repo;     // 'broneotodak/naca-app' → 'naca-app'
-            const branch = payload.pull_request?.head?.ref;     // PR head branch name (the actual ref)
+            const project = repo.split('/').pop() || repo;
+            const branch = payload.pull_request?.head?.ref;
             commands.push({
               from_agent: 'github-actions',
               to_agent: 'reviewer',
@@ -1516,43 +1522,42 @@ function handleGithubWebhook(req, res) {
               priority: 3,
             });
           }
-          // Closed/merged → notify dev-agent (deploy hook)
+          // Closed/merged → INTENT (planner decides: deploy notify? cleanup? no-op?).
           if (payload.action === 'closed' && payload.pull_request?.merged) {
-            commands.push({
-              from_agent: 'github-actions',
-              to_agent: 'dev-agent',
-              command: 'on_pr_merged',
-              payload: { repo, pr_number: payload.pull_request.number, pr_title: payload.pull_request.title, merged_by: payload.pull_request.merged_by?.login },
-              priority: 4,
+            const pr = payload.pull_request;
+            intents.push({
+              source: 'github_webhook',
+              reporter: pr.merged_by?.login || 'github-actions',
+              raw_text: `[github] PR merged on ${repo}: #${pr.number} "${pr.title}" by @${pr.merged_by?.login || 'unknown'}. Decide if any post-merge action is needed.`,
+              source_ref: JSON.stringify({ event: 'pull_request', action: 'merged', repo, pr_number: pr.number, pr_url: pr.html_url, merged_by: pr.merged_by?.login }),
             });
           }
           break;
         }
         case 'check_suite': {
+          // CI check_suite failure → INTENT (planner decomposes into investigate_bug or no-op).
           if (payload.action === 'completed' && payload.check_suite?.conclusion === 'failure') {
-            commands.push({
-              from_agent: 'github-actions',
-              to_agent: 'planner-agent',
-              command: 'investigate_check_failure',
-              payload: { repo, head_sha: payload.check_suite.head_sha, branch: payload.check_suite.head_branch, app: payload.check_suite.app?.slug },
-              priority: 5,
+            const cs = payload.check_suite;
+            intents.push({
+              source: 'github_webhook',
+              reporter: 'github-actions',
+              raw_text: `[github] CI check_suite failed on ${repo}@${cs.head_branch} (${(cs.head_sha || '').slice(0, 8)}). Failing app: ${cs.app?.slug || 'unknown'}. Investigate which check failed (likely build, lint, or test) and propose a fix if it's a real regression. Skip if the failing workflow is known-flaky or unsupported (e.g. Build Windows on a non-Windows project).`,
+              source_ref: JSON.stringify({ event: 'check_suite', repo, head_sha: cs.head_sha, branch: cs.head_branch, app: cs.app?.slug, conclusion: cs.conclusion }),
             });
           }
           break;
         }
         case 'issue_comment': {
-          // Comments mentioning @dev-agent or @planner-agent
+          // Comments mentioning an agent → INTENT (planner reads the body and decides what to do).
           const body = payload.comment?.body || '';
-          for (const target of ['dev-agent', 'planner-agent', 'reviewer-agent', 'siti']) {
-            if (body.includes('@' + target)) {
-              commands.push({
-                from_agent: 'github-actions',
-                to_agent: target,
-                command: 'github_mention',
-                payload: { repo, issue_number: payload.issue?.number, comment_url: payload.comment?.html_url, body, author: payload.comment?.user?.login },
-                priority: 3,
-              });
-            }
+          const mentioned = ['dev-agent', 'planner-agent', 'reviewer-agent', 'siti'].filter(t => body.includes('@' + t));
+          if (mentioned.length) {
+            intents.push({
+              source: 'github_webhook',
+              reporter: payload.comment?.user?.login || 'github-actions',
+              raw_text: `[github] mention on ${repo} issue/PR #${payload.issue?.number}: "${body.slice(0, 400)}". Mentioned: ${mentioned.join(', ')}. Decide which agent should respond and how.`,
+              source_ref: JSON.stringify({ event: 'issue_comment', repo, issue_number: payload.issue?.number, comment_url: payload.comment?.html_url, mentioned, author: payload.comment?.user?.login }),
+            });
           }
           break;
         }
@@ -1568,22 +1573,34 @@ function handleGithubWebhook(req, res) {
         }
       }
 
-      // Insert all queued commands in one shot via Supabase REST
-      let inserted = 0;
+      // Insert queued commands + intents in two shots via Supabase REST.
+      // Commands route to known-handler agents (reviewer for review_pr).
+      // Intents route to planner for decomposition (everything else from webhooks).
+      let insertedCommands = 0;
+      let insertedIntents  = 0;
       if (commands.length && supabase) {
         const { data, error } = await supabase.from('agent_commands').insert(commands).select('id');
         if (error) {
-          console.error('[github-webhook] insert failed:', error.message);
+          console.error('[github-webhook] commands insert failed:', error.message);
           res.writeHead(500, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: error.message }));
           return;
         }
-        inserted = data?.length || 0;
+        insertedCommands = data?.length || 0;
+      }
+      if (intents.length && supabase) {
+        const { data, error } = await supabase.from('agent_intents').insert(intents).select('id');
+        if (error) {
+          console.error('[github-webhook] intents insert failed:', error.message);
+          // Don't 500 if commands succeeded — partial success is still useful.
+        } else {
+          insertedIntents = data?.length || 0;
+        }
       }
 
-      console.log(`[github-webhook] ${event}/${payload.action || '-'} from ${repo} → queued ${inserted} command(s)`);
+      console.log(`[github-webhook] ${event}/${payload.action || '-'} from ${repo} → ${insertedCommands} command(s), ${insertedIntents} intent(s)`);
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, event, action: payload.action || null, repo, queued: inserted, delivery: deliveryId }));
+      res.end(JSON.stringify({ ok: true, event, action: payload.action || null, repo, commands: insertedCommands, intents: insertedIntents, delivery: deliveryId }));
     } catch (e) {
       console.error('[github-webhook] error:', e.message);
       res.writeHead(500, { 'Content-Type': 'application/json' });
