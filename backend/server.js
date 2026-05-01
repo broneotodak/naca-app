@@ -1435,12 +1435,14 @@ echo "TMPDIR=$TMP"
   json(res, { error: 'not found' }, 404);
 });
 
+
 // ════════════════════════════════════════════════════════════════════
 // GITHUB WEBHOOK RELAY (Phase 2 C)
 //
 // GitHub POSTs events here → we verify HMAC, classify by event type,
-// and write rows into agent_commands so the relevant agent (reviewer,
-// dev-agent, planner) can pick them up. Phase 3 wires the consumers.
+// and route to agent_commands (direct, known-handler) or agent_intents
+// (planner decomposes into specific commands). This avoids the silent
+// stall where events were queued as commands no agent accepts.
 //
 // Setup on each repo (one-time, via gh CLI or GitHub UI):
 //   gh api -X POST /repos/{owner}/{repo}/hooks \
@@ -1493,6 +1495,7 @@ function handleGithubWebhook(req, res) {
               reporter: head?.author?.username || head?.author?.name || 'github-actions',
               raw_text: `[github] push to ${repo}@${branch} — ${payload.commits?.length || 0} commit(s). HEAD: "${(head?.message || '').slice(0, 200)}". Decide whether any follow-up agent action is needed (likely no-op for routine merges; investigate if commit indicates a fix that needs verification).`,
               source_ref: JSON.stringify({ event: 'push', repo, branch, head_sha: head?.id, commits_count: payload.commits?.length || 0 }),
+              status: 'pending',
             });
           }
           break;
@@ -1530,6 +1533,7 @@ function handleGithubWebhook(req, res) {
               reporter: pr.merged_by?.login || 'github-actions',
               raw_text: `[github] PR merged on ${repo}: #${pr.number} "${pr.title}" by @${pr.merged_by?.login || 'unknown'}. Decide if any post-merge action is needed.`,
               source_ref: JSON.stringify({ event: 'pull_request', action: 'merged', repo, pr_number: pr.number, pr_url: pr.html_url, merged_by: pr.merged_by?.login }),
+              status: 'pending',
             });
           }
           break;
@@ -1543,6 +1547,7 @@ function handleGithubWebhook(req, res) {
               reporter: 'github-actions',
               raw_text: `[github] CI check_suite failed on ${repo}@${cs.head_branch} (${(cs.head_sha || '').slice(0, 8)}). Failing app: ${cs.app?.slug || 'unknown'}. Investigate which check failed (likely build, lint, or test) and propose a fix if it's a real regression. Skip if the failing workflow is known-flaky or unsupported (e.g. Build Windows on a non-Windows project).`,
               source_ref: JSON.stringify({ event: 'check_suite', repo, head_sha: cs.head_sha, branch: cs.head_branch, app: cs.app?.slug, conclusion: cs.conclusion }),
+              status: 'pending',
             });
           }
           break;
@@ -1557,6 +1562,7 @@ function handleGithubWebhook(req, res) {
               reporter: payload.comment?.user?.login || 'github-actions',
               raw_text: `[github] mention on ${repo} issue/PR #${payload.issue?.number}: "${body.slice(0, 400)}". Mentioned: ${mentioned.join(', ')}. Decide which agent should respond and how.`,
               source_ref: JSON.stringify({ event: 'issue_comment', repo, issue_number: payload.issue?.number, comment_url: payload.comment?.html_url, mentioned, author: payload.comment?.user?.login }),
+              status: 'pending',
             });
           }
           break;
@@ -1573,11 +1579,21 @@ function handleGithubWebhook(req, res) {
         }
       }
 
+      // Guard: if neo-brain is not connected, we can't persist anything.
+      // Fail loudly so the caller (GitHub) retries later.
+      if ((commands.length || intents.length) && !supabase) {
+        console.error(`[github-webhook] ${event} from ${repo} produced ${commands.length} cmd(s) + ${intents.length} intent(s) but supabase not configured — events dropped`);
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'neo-brain not configured, events not persisted' }));
+        return;
+      }
+
       // Insert queued commands + intents in two shots via Supabase REST.
       // Commands route to known-handler agents (reviewer for review_pr).
       // Intents route to planner for decomposition (everything else from webhooks).
       let insertedCommands = 0;
       let insertedIntents  = 0;
+      let intentError = null;
       if (commands.length && supabase) {
         const { data, error } = await supabase.from('agent_commands').insert(commands).select('id');
         if (error) {
@@ -1592,15 +1608,16 @@ function handleGithubWebhook(req, res) {
         const { data, error } = await supabase.from('agent_intents').insert(intents).select('id');
         if (error) {
           console.error('[github-webhook] intents insert failed:', error.message);
-          // Don't 500 if commands succeeded — partial success is still useful.
+          intentError = error.message;
         } else {
           insertedIntents = data?.length || 0;
         }
       }
 
-      console.log(`[github-webhook] ${event}/${payload.action || '-'} from ${repo} → ${insertedCommands} command(s), ${insertedIntents} intent(s)`);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, event, action: payload.action || null, repo, commands: insertedCommands, intents: insertedIntents, delivery: deliveryId }));
+      console.log(`[github-webhook] ${event}/${payload.action || '-'} from ${repo} → ${insertedCommands} command(s), ${insertedIntents} intent(s)${intentError ? ' (intent error: ' + intentError + ')' : ''}`);
+      const statusCode = intentError && !insertedCommands ? 500 : 200;
+      res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: !intentError, event, action: payload.action || null, repo, commands: insertedCommands, intents: insertedIntents, intent_error: intentError || undefined, delivery: deliveryId }));
     } catch (e) {
       console.error('[github-webhook] error:', e.message);
       res.writeHead(500, { 'Content-Type': 'application/json' });
