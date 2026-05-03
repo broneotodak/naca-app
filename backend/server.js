@@ -1484,17 +1484,15 @@ function handleGithubWebhook(req, res) {
       //
       switch (event) {
         case 'push': {
-          // Push to main = "something landed on main, decide if any follow-up needed"
-          const branch = (payload.ref || '').replace('refs/heads/', '');
-          if (branch === 'main' || branch === 'master') {
-            const head = payload.head_commit;
-            intents.push({
-              source: 'github_webhook',
-              reporter: head?.author?.username || head?.author?.name || 'github-actions',
-              raw_text: `[github] push to ${repo}@${branch} — ${payload.commits?.length || 0} commit(s). HEAD: "${(head?.message || '').slice(0, 200)}". Decide whether any follow-up agent action is needed (likely no-op for routine merges; investigate if commit indicates a fix that needs verification).`,
-              source_ref: JSON.stringify({ event: 'push', repo, branch, head_sha: head?.id, commits_count: payload.commits?.length || 0 }),
-            });
-          }
+          // Intentionally NO intent for push-to-main. Every push that lands a
+          // PR also fires a `pull_request closed merged` event (handled below)
+          // and CI/CD posts its own deploy notification — the planner-routed
+          // push intent was pure duplication. Worse, its open-ended prompt
+          // ("investigate if commit indicates a fix that needs verification")
+          // pushed planner to dispatch redundant review_pr audits and
+          // multi-paragraph dev-agent tasks that broke on shell-quoted commit
+          // messages. Removing the intent eliminates an entire class of spam
+          // without losing signal — the merged-event path still notifies.
           break;
         }
         case 'pull_request': {
@@ -1523,12 +1521,16 @@ function handleGithubWebhook(req, res) {
             });
           }
           // Closed/merged → INTENT (planner decides: deploy notify? cleanup? no-op?).
+          // Prompt explicitly forbids review/audit follow-ups: the reviewer
+          // already ran on PR open, and re-reviewing a merged PR posts a
+          // "PR awaiting your call" brief for a decision the operator just
+          // made — that's where the spam loop came from.
           if (payload.action === 'closed' && payload.pull_request?.merged) {
             const pr = payload.pull_request;
             intents.push({
               source: 'github_webhook',
               reporter: pr.merged_by?.login || 'github-actions',
-              raw_text: `[github] PR merged on ${repo}: #${pr.number} "${pr.title}" by @${pr.merged_by?.login || 'unknown'}. Decide if any post-merge action is needed.`,
+              raw_text: `[github] PR merged on ${repo}: #${pr.number} "${pr.title}" by @${pr.merged_by?.login || 'unknown'}. At most one short send_whatsapp_notification to siti summarising the merge — DO NOT dispatch review_pr (already reviewed when opened; re-reviewing a merged PR spams the operator with a redundant approval brief), DO NOT dispatch dev-agent commands (no investigation requested), DO NOT compose multi-paragraph commit-message-style task bodies. If the merge is routine, decompose to no actions at all.`,
               source_ref: JSON.stringify({ event: 'pull_request', action: 'merged', repo, pr_number: pr.number, pr_url: pr.html_url, merged_by: pr.merged_by?.login }),
             });
           }
