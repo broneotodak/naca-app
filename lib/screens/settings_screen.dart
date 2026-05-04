@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -72,14 +71,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       results['Supabase (neo-brain)'] = _ConnStatus(false, 'Error', e.toString());
     }
 
-    // Test Siti — proxy through VPS backend on web
+    // Test Siti — always proxy through the naca-app backend (HTTPS + adds
+    // x-pin header). Direct VPS :3800 was the previous mobile path but
+    // iOS ATS blocks plain HTTP, so SETTINGS connection test would always
+    // fail on iPhone even when Siti was healthy.
     try {
-      final sitiUrl = kIsWeb
-          ? '${AppConfig.apiBaseUrl}/api/siti/api/health'
-          : 'http://178.156.241.204:3800/api/health';
-      final sitiHeaders = kIsWeb
-          ? <String, String>{'Authorization': 'Bearer ${AppConfig.authToken}'}
-          : <String, String>{};
+      final sitiUrl = '${AppConfig.apiBaseUrl}/api/siti/api/health';
+      final sitiHeaders = <String, String>{'Authorization': 'Bearer ${AppConfig.authToken}'};
       final sw = Stopwatch()..start();
       final res = await http.get(Uri.parse(sitiUrl), headers: sitiHeaders).timeout(const Duration(seconds: 5));
       sw.stop();

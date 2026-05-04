@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -339,12 +338,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
 
     try {
-      final sitiUrl = kIsWeb
-          ? '${AppConfig.apiBaseUrl}/api/siti/api/health'
-          : 'http://178.156.241.204:3800/api/health';
-      final sitiHeaders = kIsWeb
-          ? {'Authorization': 'Bearer ${AppConfig.authToken}'}
-          : <String, String>{};
+      // Always go through the naca-app backend proxy. Direct
+      // http://178.156.241.204:3800 fails on iOS (App Transport Security
+      // blocks plain HTTP) and lacks the x-pin auth header anyway. The
+      // proxy is HTTPS + auth-gated.
+      final sitiUrl = '${AppConfig.apiBaseUrl}/api/siti/api/health';
+      final sitiHeaders = {'Authorization': 'Bearer ${AppConfig.authToken}'};
       results['Siti (nclaw)'] = await _pingHttp(sitiUrl, headers: sitiHeaders);
     } catch (_) {
       results['Siti (nclaw)'] = const _ServiceStatus(false, 'offline');

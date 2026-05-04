@@ -16,9 +16,13 @@ class SitiScreen extends StatefulWidget {
 }
 
 class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateMixin {
-  String get _sitiBase => kIsWeb
-      ? '${AppConfig.apiBaseUrl}/api/siti'
-      : 'http://178.156.241.204:3800';
+  // All platforms route through the naca-app backend proxy at `/api/siti/*`.
+  // The proxy is HTTPS (passes iOS App Transport Security) and adds the
+  // x-pin header that Siti's :3800 endpoints require. The previous
+  // direct-IP branch for non-web targets was the reason SITI status read
+  // as "not connected" on iPhone — plain http://178.156.241.204:3800 was
+  // blocked by ATS and even when reachable would 401 on auth-gated routes.
+  String get _sitiBase => '${AppConfig.apiBaseUrl}/api/siti';
 
   Map<String, dynamic>? _health;
   List<Map<String, dynamic>> _recentMessages = [];
