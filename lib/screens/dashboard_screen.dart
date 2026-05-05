@@ -675,12 +675,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ],
 
         // Tools Arsenal
-        _section('TOOLS ARSENAL'),
+        _section('TOOLS ARSENAL', subtitle: "Siti's capabilities"),
         _buildToolsArsenal(),
         const SizedBox(height: 16),
 
         // Command queue with filter
-        _section('COMMAND QUEUE'),
+        _section('COMMAND QUEUE', subtitle: 'agent_commands'),
         _buildQueueBar(),
         const SizedBox(height: 8),
 
@@ -693,7 +693,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
         // Intent feed
         if (_intents.isNotEmpty) ...[
-          _section('RECENT INTENTS'),
+          _section('RECENT INTENTS', subtitle: 'agent_intents'),
           ..._intents.map(_buildIntentCard),
           const SizedBox(height: 16),
         ],
@@ -705,9 +705,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _section(String text) => Padding(
+  Widget _section(String text, {String? subtitle}) => Padding(
     padding: const EdgeInsets.only(bottom: 8),
-    child: Text('// $text', style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.dimText)),
+    child: subtitle == null
+        ? Text('// $text', style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.dimText))
+        : Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text('// $text', style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.dimText)),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  '· $subtitle',
+                  style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.grey),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
   );
 
   // ── INTENT BUTTON ──
