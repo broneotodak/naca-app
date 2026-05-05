@@ -102,10 +102,21 @@ jobs:
 
       - name: Notify via agent_commands
         if: success()
+        # Pass commit-derived text via env so apostrophes, quotes, backticks
+        # in commit messages don't break the bash string. Use jq to build the
+        # JSON payload safely (no manual escaping). This is the same rule as
+        # neo-brain memory feedback_no_execsync_with_llm_text — never inline
+        # arbitrary text into a shell-quoted string.
+        env:
+          DEPLOY_MSG: ${{ steps.summary.outputs.msg }}
+          NACA_AUTH_TOKEN: ${{ secrets.NACA_AUTH_TOKEN }}
         run: |
-          DEPLOY_MSG=$(echo '${{ steps.summary.outputs.msg }}' | sed 's/"/\\"/g')
-          curl -s -X POST \
-            -H "Authorization: Bearer ${{ secrets.NACA_AUTH_TOKEN }}" \
+          PAYLOAD=$(jq -nc \
+            --arg msg "$DEPLOY_MSG" \
+            --arg to "60177519610" \
+            '{from_agent:"github-actions", to_agent:"siti", command:"send_whatsapp_notification", payload:{message:$msg, to:$to}}')
+          curl -sS -X POST \
+            -H "Authorization: Bearer $NACA_AUTH_TOKEN" \
             -H "Content-Type: application/json" \
-            -d "{\"from_agent\":\"github-actions\",\"to_agent\":\"siti\",\"command\":\"send_whatsapp_notification\",\"payload\":{\"message\":\"${DEPLOY_MSG}\",\"to\":\"60177519610\"}}" \
+            -d "$PAYLOAD" \
             https://naca.neotodak.com/api/agents/commands || true
