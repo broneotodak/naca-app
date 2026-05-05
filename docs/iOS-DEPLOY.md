@@ -121,7 +121,8 @@ For TestFlight: open `Xcode → Window → Organizer`, drag the IPA, hit Distrib
 2. **Never hardcode `http://<ip>:<port>` in Dart for iOS calls.** iOS App Transport Security blocks plain HTTP. All backend calls must go through the HTTPS proxy at `https://naca.neotodak.com/api/...` — see PR #6 for the fix history.
 3. **Never commit `lib/config.dart`.** It contains the auth token. Use `lib/config.dart.example` as the template.
 4. **After any `pubspec.yaml` change, re-run** `cd ios && pod install`. Skipping this is the #1 source of "module not found" errors.
-5. **If you change the Bundle ID for any reason, also update** `Runner/Info.plist` + the test target — both must match.
+5. **After `flutter clean`, always run `flutter pub get` before `pod install`.** Clean wipes `ios/Flutter/Generated.xcconfig`; pod install requires it. The canonical iOS rebuild sequence is `flutter clean → flutter pub get → cd ios && pod install && cd .. → flutter run`.
+6. **If you change the Bundle ID for any reason, also update** `Runner/Info.plist` + the test target — both must match.
 
 ---
 
@@ -133,18 +134,25 @@ On the iPhone: `Settings → General → VPN & Device Management → <Your Apple
 **`flutter run` fails with "Provisioning profile doesn't include the currently selected device."**
 Open Xcode, let it auto-select a profile, or manually create one for `com.broneotodak.naca` with your device's UDID added. Apple Developer portal → Certificates, IDs & Profiles.
 
-**`pod install` fails or builds with stale Pods after dependency changes.**
+**`pod install` fails with `Generated.xcconfig must exist`** (very common after `flutter clean`).
+`flutter clean` deletes `ios/Flutter/Generated.xcconfig`, but `pod install` requires it. Always run `flutter pub get` between them — pub get re-creates the file. Correct order:
 ```bash
-cd ios
-rm -rf Pods Podfile.lock
-pod install --repo-update
-cd ..
+flutter clean        # wipes build artifacts, Generated.xcconfig
+flutter pub get      # restores Generated.xcconfig + pulls Dart deps
+cd ios && pod install && cd ..
+flutter run -d <device-id>
+```
+
+**`pod install` builds stale or fails with module errors after dependency changes.**
+Wipe Pods + Podfile.lock and re-resolve from a clean Flutter state:
+```bash
 flutter clean
 flutter pub get
+cd ios && rm -rf Pods Podfile.lock && pod install --repo-update && cd ..
 ```
 
 **"No such module 'audioplayers_darwin'" or similar.**
-Same fix as above — `pod install --repo-update`. Audio plugin came in via PR #5.
+Same fix as above. The `audioplayers` plugin came in via PR #5; an out-of-date Podfile.lock from before that PR will be missing the iOS module entry.
 
 **App installs but SITI tab shows "not connected" / endpoints time out.**
 ATS is blocking. Confirm the call is going through `naca.neotodak.com` (HTTPS proxy), not a raw HTTP IP. Check `lib/config.dart` and `lib/services/*.dart` for any leaking `http://178.156.241.204:*` strings — should all be `https://naca.neotodak.com/...`. PR #6 fixed three such places; if a regression slipped in, grep is your friend.
