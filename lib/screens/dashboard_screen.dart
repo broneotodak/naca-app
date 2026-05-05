@@ -593,7 +593,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: Row(
         children: [
           Text('NACA://', style: HackerTheme.mono(size: 14, color: HackerTheme.green)),
-          Text('headquarters', style: HackerTheme.mono(size: 14, color: HackerTheme.dimText)),
+          Flexible(
+            child: Text(
+              "Neo's Agentic Centre Application",
+              style: HackerTheme.mono(size: 14, color: HackerTheme.dimText),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
           const Spacer(),
           if (_lastRefresh != null)
             Text(_timeAgo(_lastRefresh!), style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.grey)),
@@ -618,7 +624,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
         // Infrastructure (Uptime Kuma fleet)
         if (_kuma != null) ...[
-          _section('INFRASTRUCTURE · UPTIME KUMA'),
+          _section('HARDWARE FLEET'),
           _buildKumaPanel(),
           const SizedBox(height: 16),
         ],
@@ -1030,7 +1036,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
               ),
               const SizedBox(width: 8),
-              Text('KUMA FLEET', style: HackerTheme.mono(size: 12, color: allGreen ? HackerTheme.green : HackerTheme.amber)),
+              Text('HARDWARE', style: HackerTheme.mono(size: 12, color: allGreen ? HackerTheme.green : HackerTheme.amber)),
+              const SizedBox(width: 6),
+              Text('· via Kuma', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.grey)),
               const SizedBox(width: 8),
               _kumaPill('$up up', HackerTheme.green),
               if (down > 0) ...[ const SizedBox(width: 4), _kumaPill('$down down', HackerTheme.red) ],
