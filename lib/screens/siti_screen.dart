@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../theme.dart';
@@ -114,7 +113,7 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
 
   Future<Map<String, dynamic>?> _fetchJson(String path) async {
     try {
-      final headers = kIsWeb ? {'Authorization': 'Bearer ${AppConfig.authToken}'} : <String, String>{};
+      final headers = {'Authorization': 'Bearer ${AppConfig.authToken}'};
       final res = await http.get(Uri.parse('$_sitiBase$path'), headers: headers).timeout(const Duration(seconds: 20));
       if (res.statusCode < 400) return jsonDecode(res.body);
       return null;
@@ -127,7 +126,7 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
     try {
       final headers = <String, String>{
         'Content-Type': 'application/json',
-        if (kIsWeb) 'Authorization': 'Bearer ${AppConfig.authToken}',
+        'Authorization': 'Bearer ${AppConfig.authToken}',
       };
       final uri = Uri.parse('$_sitiBase$path');
       final encodedBody = jsonEncode(body);
@@ -155,7 +154,7 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
     try {
       final headers = <String, String>{
         'Content-Type': 'application/json',
-        if (kIsWeb) 'Authorization': 'Bearer ${AppConfig.authToken}',
+        'Authorization': 'Bearer ${AppConfig.authToken}',
       };
       final res = await http.delete(Uri.parse('$_sitiBase$path'), headers: headers).timeout(const Duration(seconds: 10));
       return res.statusCode < 400;
@@ -308,7 +307,7 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
             const SizedBox(height: 16),
             Text('Cannot reach Siti', style: HackerTheme.mono(size: 14, color: HackerTheme.red)),
             const SizedBox(height: 8),
-            Text('VPS 178.156.241.204:3800', style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.grey)),
+            Text('via naca.neotodak.com proxy', style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.grey)),
             const SizedBox(height: 4),
             Text(_error ?? '', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.dimText), textAlign: TextAlign.center),
             const SizedBox(height: 16),
@@ -1253,7 +1252,7 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
     try {
       final headers = <String, String>{
         'Content-Type': 'application/json',
-        if (kIsWeb) 'Authorization': 'Bearer ${AppConfig.authToken}',
+        'Authorization': 'Bearer ${AppConfig.authToken}',
       };
       final res = await http.post(
         Uri.parse('$_sitiBase/api/send'),
