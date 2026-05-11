@@ -530,12 +530,13 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     .agent-role { color: #bbb; font-size: 0.82rem; margin: 4px 0; }
     .agent-tools { color: #aaa; font-size: 0.78rem; font-family: 'JetBrains Mono', monospace; }
     .agent-tools code { background: rgba(255,255,255,0.05); padding: 1px 5px; border-radius: 3px; font-size: 0.74rem; }
-    .pipeline-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; margin: 14px 0; }
-    .stage { background: rgba(255,255,255,0.03); border-radius: 6px; padding: 10px 12px; border-top: 3px solid; min-height: 130px; }
+    .pipeline-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin: 14px 0; }
+    .stage { background: rgba(255,255,255,0.03); border-radius: 6px; padding: 10px 12px; border-top: 3px solid; min-height: 130px; overflow: hidden; }
     .stage-head { font-size: 0.72rem; color: #888; text-transform: uppercase; letter-spacing: 1px; }
-    .stage-name { font-weight: 600; font-size: 0.92rem; margin: 3px 0 8px; }
-    .stage-actor { font-size: 0.78rem; color: #ccc; padding: 4px 6px; background: rgba(255,255,255,0.03); border-radius: 4px; margin-bottom: 4px; display: flex; gap: 4px; align-items: center; }
-    .stage-actor code { font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; }
+    .stage-name { font-weight: 600; font-size: 0.92rem; margin: 3px 0 8px; word-wrap: break-word; }
+    .stage-actor { font-size: 0.78rem; color: #ccc; padding: 4px 6px; background: rgba(255,255,255,0.03); border-radius: 4px; margin-bottom: 4px; line-height: 1.4; word-wrap: break-word; overflow-wrap: break-word; }
+    .stage-actor code { font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; word-break: break-all; }
+    .pipeline-row + h3 { margin-top: 32px; }
   </style>
 
   <div class="section" id="agentflow">
@@ -721,17 +722,19 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
   <div class="callout amber" style="margin-top: 12px;"><strong>Heartbeat-only fleet members</strong> (not in Departments because they don't run fleet jobs — they <em>host</em> agents): <code>nas-ugreen</code>, <code>tr-home</code>, <code>claw-mac</code>. They have <code>agent_registry</code> rows for fleet-visibility (so the supervisor can confirm the host machine is alive) but their actual workload is documented in the <a href="#fleet" style="color: var(--cyan);">Hardware fleet section below</a>.</div>
 
-  <h3 style="margin-top: 28px;">Pipeline · Stages of work</h3>
-  <p style="color: #888; font-size: 0.9rem;"><em>How a fix or feature moves through the team. Each stage's "actor" is the agent (or human) who does the work; arrows downstream are implicit.</em></p>
+  <h3 style="margin-top: 28px;">Pipeline 1 · Code-change flow (10 stages)</h3>
+  <p style="color: #888; font-size: 0.9rem;"><em>How a fix or feature moves through the team. Each stage's "actor" is the agent (or human) who does the work; arrows downstream are implicit. This is the highest-traffic loop — other workflows (social posting, twin auto-reply, Plaud, forex, group requests) have their own pipelines below.</em></p>
   <div class="pipeline-row">
     <div class="stage" style="border-color: var(--cyan);">
       <div class="stage-head">Stage 1</div>
       <div class="stage-name">📥 Input</div>
-      <div class="stage-actor">📱 Neo (WhatsApp / NACA app)</div>
-      <div class="stage-actor">🐕 xiaozhi-dog (voice)</div>
-      <div class="stage-actor">🎙️ Plaud (voice notes)</div>
-      <div class="stage-actor">⚡ github-actions (webhook)</div>
-      <div class="stage-actor">⏰ scheduled cron</div>
+      <div class="stage-actor"><strong>👤 Neo (the operator)</strong> — WhatsApp DM to Siti, NACA app, or Claude Code session</div>
+      <div class="stage-actor">🐕 xiaozhi-dog — wake-word voice on desk</div>
+      <div class="stage-actor">🎙️ Plaud — pocket voice recorder</div>
+      <div class="stage-actor">⚡ github-actions — webhook fires on push to main</div>
+      <div class="stage-actor">⏰ scheduled cron — timekeeper firing scheduled_actions</div>
+      <div class="stage-actor">🛡️ daily-checkup — 09:00 MYT digest (detector-only; auto-fix is Phase 2, deferred)</div>
+      <div class="stage-actor">💬 WhatsApp groups / DMs from contacts — Siti reads, can promote to TASK (see Pipeline 6)</div>
     </div>
     <div class="stage" style="border-color: var(--purple);">
       <div class="stage-head">Stage 2</div>
@@ -783,9 +786,197 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     </div>
   </div>
 
-  <div class="callout green" style="margin-top: 14px;"><strong>Key flows that DON'T fit this 10-stage pipeline:</strong> social-media posting (browser-agent / publisher-agent on Slave MBP) has its own approval-driven flow via content_drafts. Twin auto-reply (neo-twin) runs as a separate Phase 6 pipeline against Neo's primary number. Plaud voice-notes (CLAW) feed memories directly. The pipeline above is the <em>code-change</em> flow specifically — the highest-traffic loop.</div>
+  <h3 style="margin-top: 32px;">Pipeline 2 · Social-media post (approval-gated)</h3>
+  <p style="color: #888; font-size: 0.9rem;"><em>How a content idea gets to LinkedIn / FB / IG / Threads / TikTok with Neo in the approval loop.</em></p>
+  <div class="pipeline-row">
+    <div class="stage" style="border-color: var(--cyan);">
+      <div class="stage-head">Stage 1</div>
+      <div class="stage-name">💡 Draft</div>
+      <div class="stage-actor">👤 Neo writes idea via NACA app SCHED tab</div>
+      <div class="stage-actor">OR claw-command-worker auto-generates via cloud APIs (Higgsfield, Veo, OpenArt, Kling)</div>
+      <div class="stage-actor">→ <code>content_drafts</code> row written</div>
+    </div>
+    <div class="stage" style="border-color: var(--amber);">
+      <div class="stage-head">Stage 2</div>
+      <div class="stage-name">📝 Brief</div>
+      <div class="stage-actor"><code>siti-router</code> DMs Neo on WhatsApp: "🎨 Draft for [platform]: [preview]"</div>
+    </div>
+    <div class="stage" style="border-color: var(--green);">
+      <div class="stage-head">Stage 3</div>
+      <div class="stage-name">✅ Decide</div>
+      <div class="stage-actor">📱 Neo replies <em>approve</em> / <em>reject</em> / <em>edit</em></div>
+    </div>
+    <div class="stage" style="border-color: var(--amber);">
+      <div class="stage-head">Stage 4</div>
+      <div class="stage-name">🤝 Route</div>
+      <div class="stage-actor"><code>poster-agent</code> (NAS Docker) claims approved draft, dispatches per-platform <code>agent_command</code></div>
+    </div>
+    <div class="stage" style="border-color: var(--purple);">
+      <div class="stage-head">Stage 5a</div>
+      <div class="stage-name">🔌 Publish via API</div>
+      <div class="stage-actor"><code>publisher-agent</code> (Slave MBP) — LinkedIn UGC, FB Pages, X (when restored)</div>
+    </div>
+    <div class="stage" style="border-color: var(--purple);">
+      <div class="stage-head">Stage 5b</div>
+      <div class="stage-name">🌐 Publish via UI</div>
+      <div class="stage-actor"><code>browser-agent</code> (Slave MBP) — Chromium with per-platform login profile: TikTok, IG, Threads</div>
+    </div>
+    <div class="stage" style="border-color: var(--green);">
+      <div class="stage-head">Stage 6</div>
+      <div class="stage-name">🚀 Confirm</div>
+      <div class="stage-actor">Post live → <code>content_drafts.status='posted'</code></div>
+      <div class="stage-actor">Siti DMs Neo "🚀 posted to [platform] — [link]"</div>
+    </div>
+  </div>
 
-  <div class="callout amber"><strong>Read this like an org chart:</strong> if you're wondering "who handles X?", find the department; if you're wondering "what happens after Y?", trace the pipeline. If an agent isn't shown here it's either archived (person-sync, musclehub) or hasn't been built yet (placeholder roles in Phase 6+).</div>
+  <h3 style="margin-top: 32px;">Pipeline 3 · Twin auto-reply <span style="color: var(--amber); font-size: 0.85rem;">(Phase 6 shadow soak — NOT auto-sending yet)</span></h3>
+  <p style="color: #888; font-size: 0.9rem;"><em>How <code>neo-twin</code> drafts a Neo-voice reply on Neo's primary WhatsApp number (not Siti's). Drafts are stored for review; live auto-send is gated until shadow soak proves quality.</em></p>
+  <div class="pipeline-row">
+    <div class="stage" style="border-color: var(--cyan);">
+      <div class="stage-head">Stage 1</div>
+      <div class="stage-name">📥 Inbound</div>
+      <div class="stage-actor">Message arrives on Neo's primary WhatsApp number (different from Siti's number)</div>
+    </div>
+    <div class="stage" style="border-color: var(--green);">
+      <div class="stage-head">Stage 2</div>
+      <div class="stage-name">🎙️ Capture</div>
+      <div class="stage-actor"><code>twin-ingest</code> (Twin VPS) writes the message to <code>memories</code> with sender + group context</div>
+    </div>
+    <div class="stage" style="border-color: var(--green);">
+      <div class="stage-head">Stage 3</div>
+      <div class="stage-name">🗣️ ASR (if voice)</div>
+      <div class="stage-actor">OpenAI Whisper transcribes voice notes; pass-through for text</div>
+    </div>
+    <div class="stage" style="border-color: var(--purple);">
+      <div class="stage-head">Stage 4</div>
+      <div class="stage-name">🧠 Embed + recall</div>
+      <div class="stage-actor">Gemini embedding → retrieve relevant prior memories from neo-brain for the same sender / topic</div>
+    </div>
+    <div class="stage" style="border-color: var(--purple);">
+      <div class="stage-head">Stage 5</div>
+      <div class="stage-name">✍️ Draft reply</div>
+      <div class="stage-actor"><code>neo-twin</code> generates Neo-voice reply via two-tier (Haiku draft → Qwen rewrite)</div>
+    </div>
+    <div class="stage" style="border-color: var(--amber);">
+      <div class="stage-head">Stage 6</div>
+      <div class="stage-name">🌗 Shadow soak</div>
+      <div class="stage-actor">Draft stored to <code>twin_drafts</code> — NOT auto-sent. Neo reviews via ClaudeN dashboard before any whitelist promotes to auto-send.</div>
+    </div>
+  </div>
+
+  <h3 style="margin-top: 32px;">Pipeline 4 · Plaud voice note → memory</h3>
+  <p style="color: #888; font-size: 0.9rem;"><em>Pocket voice recorder → searchable memory with operator approval gate.</em></p>
+  <div class="pipeline-row">
+    <div class="stage" style="border-color: var(--cyan);">
+      <div class="stage-head">Stage 1</div>
+      <div class="stage-name">🎙️ Record</div>
+      <div class="stage-actor">Neo dictates a note on the Plaud device</div>
+    </div>
+    <div class="stage" style="border-color: var(--green);">
+      <div class="stage-head">Stage 2</div>
+      <div class="stage-name">☁️ Cloud sync</div>
+      <div class="stage-actor">Plaud cloud syncs → n8n webhook fires on the recording</div>
+    </div>
+    <div class="stage" style="border-color: var(--green);">
+      <div class="stage-head">Stage 3</div>
+      <div class="stage-name">📥 Ingest</div>
+      <div class="stage-actor">n8n posts to <code>CLAW:3904</code> (plaud-ingest service)</div>
+    </div>
+    <div class="stage" style="border-color: var(--purple);">
+      <div class="stage-head">Stage 4</div>
+      <div class="stage-name">🧠 Summarize</div>
+      <div class="stage-actor">GPT-5 produces a structured summary of the transcript</div>
+    </div>
+    <div class="stage" style="border-color: var(--amber);">
+      <div class="stage-head">Stage 5</div>
+      <div class="stage-name">📝 Brief</div>
+      <div class="stage-actor">Siti DMs Neo with the proposed memory + "approve / reject"</div>
+    </div>
+    <div class="stage" style="border-color: var(--green);">
+      <div class="stage-head">Stage 6</div>
+      <div class="stage-name">✅ Commit</div>
+      <div class="stage-actor">Approved → write to pgVector <code>memories</code> with Gemini embedding (semantic-searchable forever)</div>
+    </div>
+  </div>
+
+  <h3 style="margin-top: 32px;">Pipeline 5 · Forex signal → trade</h3>
+  <p style="color: #888; font-size: 0.9rem;"><em>Signal in WhatsApp → executed trade on MetaAPI. Close-notification still TODO.</em></p>
+  <div class="pipeline-row">
+    <div class="stage" style="border-color: var(--cyan);">
+      <div class="stage-head">Stage 1</div>
+      <div class="stage-name">📡 Signal</div>
+      <div class="stage-actor">Intan posts a forex signal in the watched WhatsApp group</div>
+    </div>
+    <div class="stage" style="border-color: var(--green);">
+      <div class="stage-head">Stage 2</div>
+      <div class="stage-name">📥 Ingest</div>
+      <div class="stage-actor"><code>forex-signal-ingest</code> on CLAW captures the message</div>
+    </div>
+    <div class="stage" style="border-color: var(--purple);">
+      <div class="stage-head">Stage 3</div>
+      <div class="stage-name">🔍 Parse</div>
+      <div class="stage-actor">Extracts symbol, direction (BUY/SELL), stop-loss, take-profit from the signal text</div>
+    </div>
+    <div class="stage" style="border-color: var(--amber);">
+      <div class="stage-head">Stage 4</div>
+      <div class="stage-name">⚡ Execute</div>
+      <div class="stage-actor">MetaAPI places the order on Neo's MT5 account (real trading, not paper)</div>
+    </div>
+    <div class="stage" style="border-color: var(--green);">
+      <div class="stage-head">Stage 5</div>
+      <div class="stage-name">📊 Track</div>
+      <div class="stage-actor">Open position monitored; PIN-gated dashboard at <code>forex-dashboard</code> surfaces state</div>
+    </div>
+    <div class="stage" style="border-color: var(--amber);">
+      <div class="stage-head">Stage 6</div>
+      <div class="stage-name">🔔 Notify</div>
+      <div class="stage-actor">Siti DMs Neo on order placement</div>
+      <div class="stage-actor"><em>TODO: close-notification to Intan + Neo on TP/SL hit</em></div>
+    </div>
+  </div>
+
+  <h3 style="margin-top: 32px;">Pipeline 6 · Group / DM project request → fix <span style="color: #888; font-size: 0.85rem;">(e.g. Todak Academy)</span></h3>
+  <p style="color: #888; font-size: 0.9rem;"><em>How a request from someone OTHER than Neo (a contact in a WhatsApp group or DM) gets routed into the code-change flow. Same backend as Pipeline 1, different front door.</em></p>
+  <div class="pipeline-row">
+    <div class="stage" style="border-color: var(--cyan);">
+      <div class="stage-head">Stage 1</div>
+      <div class="stage-name">💬 Mention</div>
+      <div class="stage-actor">Contact in WA group/DM: "hey, X is broken on academy.neotodak.com"</div>
+    </div>
+    <div class="stage" style="border-color: var(--purple);">
+      <div class="stage-head">Stage 2</div>
+      <div class="stage-name">🎯 Triage</div>
+      <div class="stage-actor"><code>siti-router</code> classifies the message (rules + LLM tiebreak). Permissions filter: only whitelisted contacts can promote to TASK.</div>
+    </div>
+    <div class="stage" style="border-color: var(--amber);">
+      <div class="stage-head">Stage 3</div>
+      <div class="stage-name">✋ Confirm with Neo</div>
+      <div class="stage-actor">Siti DMs Neo: "[contact] reported [issue]. Open work order?" — Neo replies <em>yes</em> / <em>defer</em></div>
+    </div>
+    <div class="stage" style="border-color: var(--purple);">
+      <div class="stage-head">Stage 4</div>
+      <div class="stage-name">🧩 Plan</div>
+      <div class="stage-actor"><code>planner-agent</code> decomposes the report into <code>agent_commands</code> against the right repo (e.g. academy-portal)</div>
+    </div>
+    <div class="stage" style="border-color: var(--purple);">
+      <div class="stage-head">Stage 5</div>
+      <div class="stage-name">🔧 Build</div>
+      <div class="stage-actor"><code>dev-agent</code> writes fix on a feature branch, opens PR</div>
+    </div>
+    <div class="stage" style="border-color: var(--purple);">
+      <div class="stage-head">Stage 6</div>
+      <div class="stage-name">🔍 Review + decide</div>
+      <div class="stage-actor"><code>reviewer-agent</code> verdicts → Siti brief → Neo approves</div>
+    </div>
+    <div class="stage" style="border-color: var(--green);">
+      <div class="stage-head">Stage 7</div>
+      <div class="stage-name">🚀 Deploy + close loop</div>
+      <div class="stage-actor"><code>dev-agent</code> merges · <code>deployer-agent</code> pulls + restarts · <code>verifier-agent</code> confirms live</div>
+      <div class="stage-actor">Siti replies in the original group/DM: "✅ fixed by [PR link]"</div>
+    </div>
+  </div>
+
+  <div class="callout amber" style="margin-top: 20px;"><strong>Read this like an org chart:</strong> if you're wondering "who handles X?", find the department; if you're wondering "what happens after Y?", trace the pipeline. If an agent isn't shown in any pipeline it's either archived (person-sync, musclehub) or not yet built (auto-repair Phase 2, monitoring-agent consolidation).</div>
 
   <!-- HARDWARE FLEET -->
   <div class="section" id="fleet">
@@ -802,33 +993,33 @@ graph TB
     classDef client fill:#3a1d4a,stroke:#8b5cf6,color:#e0e0e0
     classDef device fill:#1e293b,stroke:#ec4899,color:#e0e0e0
 
-    NEO[📱 Neo's iPhone<br/>WhatsApp + NACA app]:::client
-    DOG[🐕 Xiaozhi Dog<br/>ESP32-S3 · voice I/O<br/>Siti inside]:::device
+    NEO["📱 Neo's iPhone<br/>WhatsApp + NACA app"]:::client
+    DOG["🐕 Xiaozhi Dog<br/>ESP32-S3 · voice I/O<br/>Siti inside"]:::device
 
     subgraph CLOUD[" ☁️ Hetzner Cloud "]
-        SITI_VPS[<b>Siti VPS</b><br/>178.156.241.204<br/>4 vCPU · 8GB · 150GB<br/>5 active PM2 agents + naca-backend + naca-mcp-bridge-http<br/>siti-router · siti-ingest · deployer · face-service]:::vps
-        TWIN_VPS[<b>Neo-Twin VPS</b><br/>5.161.126.222<br/>twin-ingest only]:::vps
+        SITI_VPS["<b>Siti VPS</b><br/>178.156.241.204<br/>4 vCPU · 8GB · 150GB<br/>5 active PM2 agents + naca-backend + naca-mcp-bridge-http<br/>siti-router · siti-ingest · deployer · face-service"]:::vps
+        TWIN_VPS["<b>Neo-Twin VPS</b><br/>5.161.126.222<br/>twin-ingest only"]:::vps
     end
 
     subgraph SG[" 🇸🇬 Singapore "]
-        TDCC[<b>TDCC VPS</b><br/>5.223.80.244<br/>GAM7 Workspace admin]:::vps
+        TDCC["<b>TDCC VPS</b><br/>5.223.80.244<br/>GAM7 Workspace admin"]:::vps
     end
 
     subgraph HOME[" 🏠 Home network · Cyberjaya "]
-        CLAW[<b>CLAW</b> · MBA M4 · 24GB<br/>100.93.159.1<br/>supervisor + claw-command-worker<br/>Studio role — media gen]:::mac
-        SLAVE[<b>Slave MBP</b> · M1 Pro · 16GB<br/>100.93.211.9<br/>publisher-agent + browser-agent<br/>Publisher — API + Chromium]:::mac
-        TRHOME[<b>tr-home</b> · Threadripper 7970X · 64GB<br/>RX 7900 XTX · 24GB VRAM · ROCm<br/>100.126.89.7<br/>reviewer · planner · dev (Phase 8)<br/>+ Ollama qwen2.5:32b + FCC sidecar + Phase 6 rig]:::mac
-        MBP[<b>Neo's MBP</b><br/>operator · Claude Code]:::client
+        CLAW["<b>CLAW</b> · MBA M4 · 24GB<br/>100.93.159.1<br/>supervisor + claw-command-worker<br/>Studio role — media gen"]:::mac
+        SLAVE["<b>Slave MBP</b> · M1 Pro · 16GB<br/>100.93.211.9<br/>publisher-agent + browser-agent<br/>Publisher — API + Chromium"]:::mac
+        TRHOME["<b>tr-home</b> · Threadripper 7970X · 64GB<br/>RX 7900 XTX · 24GB VRAM · ROCm<br/>100.126.89.7<br/>reviewer · planner · dev — Phase 8<br/>+ Ollama qwen2.5:32b + FCC sidecar + Phase 6 rig"]:::mac
+        MBP["<b>Neo's MBP</b><br/>operator · Claude Code"]:::client
         DOG
-        RPI[🥧 <b>naca-pi</b><br/>RPi 4 · 8GB · ARM64<br/>100.114.3.1]:::device
-        FLIP[🐬 <b>Flipper Zero</b><br/>Mflip · Unleashed<br/>Sub-GHz·NFC·RFID·IR·WiFi]:::device
+        RPI["🥧 <b>naca-pi</b><br/>RPi 4 · 8GB · ARM64<br/>100.114.3.1"]:::device
+        FLIP["🐬 <b>Flipper Zero</b><br/>Mflip · Unleashed<br/>Sub-GHz·NFC·RFID·IR·WiFi"]:::device
     end
 
     subgraph OFFICE[" 🏢 Todak Studios · Kenwingston "]
-        NAS[<b>Ugreen NAS</b><br/>Pentium Gold · 22TB RAID5<br/>Docker containers]:::nas
+        NAS["<b>Ugreen NAS</b><br/>Pentium Gold · 22TB RAID5<br/>Docker containers"]:::nas
     end
 
-    NB[(<b>neo-brain</b><br/>Supabase pgVector<br/>shared memory · all agents read/write)]:::brain
+    NB[("<b>neo-brain</b><br/>Supabase pgVector<br/>shared memory · all agents read/write")]:::brain
 
     NEO ==>|WhatsApp| SITI_VPS
     NEO ==>|HTTPS| SITI_VPS
@@ -1444,22 +1635,22 @@ sequenceDiagram
   <h3 style="margin-top: 28px; margin-bottom: 8px; color: #ddd;">Architecture target</h3>
   <p style="color: #888; font-size: 0.9rem; margin-bottom: 10px;"><em>Three platform packages, many interfaces.</em></p>
   <pre class="refactor-arch">
-<span class="refactor-arch repo">broneotodak/naca</span>                          ← THE PLATFORM
+<span class="repo">broneotodak/naca</span>                          ← THE PLATFORM
   packages/
-    <span class="refactor-arch pkg">@naca/core</span>      shared kernel: postgrest, vault, gemini, heartbeat, send
-    <span class="refactor-arch pkg">@naca/tools</span>     25 capabilities (web, media, workspace, comms, state, ops)
-    <span class="refactor-arch pkg">@naca/router</span>    intent classifier (engine) + LLM tiebreak
+    <span class="pkg">@naca/core</span>      shared kernel: postgrest, vault, gemini, heartbeat, send
+    <span class="pkg">@naca/tools</span>     25 capabilities (web, media, workspace, comms, state, ops)
+    <span class="pkg">@naca/router</span>    intent classifier (engine) + LLM tiebreak
 
-<span class="refactor-arch repo">broneotodak/siti-v2</span>                       ← WhatsApp interface
+<span class="repo">broneotodak/siti-v2</span>                       ← WhatsApp interface
   imports @naca/core + @naca/router + @naca/tools
   keeps WhatsApp-specific: wacli transports, envelope mappers,
   Siti's rule list + persona, the 8 specialists
 
-<span class="refactor-arch repo">broneotodak/naca-app</span>                      ← Mobile / web operator console (this site)
+<span class="repo">broneotodak/naca-app</span>                      ← Mobile / web operator console (this site)
   Flutter cross-platform · reads neo-brain via REST
 
-<span class="refactor-arch repo">broneotodak/naca-mcp-bridge</span>               ← Claude Code MCP server
-  <span class="refactor-arch note">(stdio Phase 7 · HTTP+SSE Phase 7b — both shipped 2026-05-11)</span>
+<span class="repo">broneotodak/naca-mcp-bridge</span>               ← Claude Code MCP server
+  <span class="note">(stdio Phase 7 · HTTP+SSE Phase 7b — both shipped 2026-05-11)</span>
   </pre>
 
   <h3 style="margin-top: 32px; margin-bottom: 6px; color: #ddd;">Phases</h3>
