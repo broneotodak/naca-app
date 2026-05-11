@@ -484,12 +484,13 @@ footer a:hover { color: var(--cyan); }
   <article class="phase done">
     <div class="num">7</div>
     <div class="body">
-      <h3>NACA MCP bridge (MVP)</h3>
-      <p>New repo <a href="https://github.com/broneotodak/naca-mcp-bridge"><code>broneotodak/naca-mcp-bridge</code></a>. Exposes 15 envelope-free <code>@naca/tools</code> over MCP <strong>stdio</strong> so Claude Code sessions can call the same capabilities Siti uses. State/web/workspace tools available: <code>recall</code>, <code>lookup_resource</code>, <code>read_url</code>, <code>web_search</code>, <code>time_now</code>, <code>gmail_*</code>, <code>drive_search/read</code>, <code>calendar_*</code>, <code>check_agent_status</code>, <code>list_media</code>, <code>search_person</code>, <code>get_person_facts</code>. Wire into Claude Code via <code>~/.claude/settings.json</code> <code>mcpServers</code> block — see repo README. <em>Phase 7b (deferred): HTTP+SSE transport, bearer-token auth via <code>@naca/core/vault</code>, pm2 deploy on Hetzner for remote multi-tenant access.</em></p>
+      <h3>NACA MCP bridge (stdio + HTTP+SSE)</h3>
+      <p>New repo <a href="https://github.com/broneotodak/naca-mcp-bridge"><code>broneotodak/naca-mcp-bridge</code></a>. Exposes 15 envelope-free <code>@naca/tools</code> over MCP — both <strong>stdio</strong> (Phase 7, local Claude Code subprocess) and <strong>HTTP+SSE</strong> (Phase 7b, remote tailnet access). State/web/workspace tools available: <code>recall</code>, <code>lookup_resource</code>, <code>read_url</code>, <code>web_search</code>, <code>time_now</code>, <code>gmail_*</code>, <code>drive_search/read</code>, <code>calendar_*</code>, <code>check_agent_status</code>, <code>list_media</code>, <code>search_person</code>, <code>get_person_facts</code>. Wire into Claude Code via <code>~/.claude.json</code> <code>mcpServers</code> block — see repo README.</p>
+      <p><strong>Phase 7b shipped 2026-05-11:</strong> <code>bin/mcp-bridge-http.js</code> wraps MCP SDK's <code>StreamableHTTPServerTransport</code>; bearer-token auth in <code>src/auth.js</code> reads the expected token from <code>credentials_vault</code> via <code>@naca/core</code> <code>getCredential</code> (constant-time compare). Deployed under pm2 (<code>naca-mcp-bridge-http</code>) on Hetzner <code>openclaw</code>, bound to the tailscale interface only — no public network exposure. Token-to-tier mapping deferred until there's an actual non-owner caller.</p>
       <div class="meta">
         <a href="https://github.com/broneotodak/naca-mcp-bridge">naca-mcp-bridge</a>
-        commit <code>7c92fd6</code>
-        7/7 tests pass
+        Phase 7 MVP + Phase 7b
+        17/17 tests pass
       </div>
     </div>
     <div class="status">✓ DONE</div>
