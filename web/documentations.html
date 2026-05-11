@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>NACA — Platform Refactor · Progress</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --cyan: #06b6d4;
+  --blue: #3b82f6;
+  --purple: #8b5cf6;
+  --green: #10b981;
+  --amber: #f59e0b;
+  --red: #ef4444;
+  --grey: #6b7280;
+  --gradient: linear-gradient(135deg, #06b6d4, #3b82f6, #8b5cf6);
+  --bg: #0a0a0f;
+  --panel: rgba(255,255,255,0.04);
+  --panel-strong: rgba(255,255,255,0.06);
+  --border: rgba(255,255,255,0.08);
+}
+html { scroll-behavior: smooth; }
+body {
+  font-family: 'Outfit', system-ui, sans-serif;
+  background: linear-gradient(135deg, #0a0a0f 0%, #0d1520 50%, #0a0a0f 100%);
+  color: #e0e0e0;
+  min-height: 100vh;
+  padding-bottom: 80px;
+  line-height: 1.55;
+}
+
+.header {
+  padding: 60px 30px 30px;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+}
+.header .badge {
+  display: inline-block;
+  padding: 4px 12px;
+  background: rgba(6,182,212,0.15);
+  border: 1px solid var(--cyan);
+  border-radius: 100px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.7rem;
+  color: var(--cyan);
+  margin-bottom: 18px;
+}
+.header h1 {
+  font-size: 2.75rem;
+  font-weight: 800;
+  background: var(--gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 12px;
+  letter-spacing: -1px;
+}
+.header .tagline {
+  color: #aaa;
+  font-size: 1.05rem;
+  max-width: 700px;
+  margin: 0 auto;
+}
+.header .stamp {
+  margin-top: 18px;
+  color: #666;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+}
+
+.container { max-width: 1100px; margin: 0 auto; padding: 30px; }
+
+/* Progress meter */
+.progress-card {
+  background: var(--panel-strong);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 26px;
+  margin: 30px 0 50px;
+}
+.progress-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 22px;
+}
+.stat {
+  text-align: center;
+  padding: 14px 8px;
+  background: rgba(0,0,0,0.25);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+.stat .num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 1.9rem;
+  font-weight: 700;
+  display: block;
+  margin-bottom: 4px;
+}
+.stat .num.done { color: var(--green); }
+.stat .num.now { color: var(--cyan); }
+.stat .num.next { color: var(--amber); }
+.stat .num.parked { color: var(--grey); }
+.stat .label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.7rem;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.progress-bar {
+  height: 10px;
+  background: rgba(0,0,0,0.4);
+  border-radius: 5px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.progress-fill {
+  height: 100%;
+  background: var(--gradient);
+  width: 50%;
+  border-radius: 5px;
+}
+.progress-pct {
+  margin-top: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85rem;
+  color: #aaa;
+  text-align: center;
+}
+
+/* Sections */
+.section {
+  margin: 40px 0 18px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.section h2 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #fff;
+}
+.section .sublabel {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+  color: #888;
+  margin-top: 4px;
+}
+
+/* Phase cards */
+.phase {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 22px 24px;
+  margin: 14px 0;
+  display: grid;
+  grid-template-columns: 60px 1fr auto;
+  gap: 22px;
+  align-items: start;
+  transition: border-color 0.15s;
+}
+.phase:hover { border-color: rgba(255,255,255,0.18); }
+.phase.done { border-left: 3px solid var(--green); }
+.phase.now { border-left: 3px solid var(--cyan); background: rgba(6,182,212,0.04); }
+.phase.next { border-left: 3px solid var(--amber); }
+.phase.parked { border-left: 3px solid var(--grey); opacity: 0.78; }
+.phase .num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 2.2rem;
+  font-weight: 700;
+  color: #444;
+  text-align: center;
+  line-height: 1;
+}
+.phase.done .num { color: var(--green); }
+.phase.now .num { color: var(--cyan); }
+.phase.next .num { color: var(--amber); }
+.phase .body h3 {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 6px;
+}
+.phase .body p { color: #bbb; margin-bottom: 10px; }
+.phase .body .meta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+  color: #777;
+  margin-top: 10px;
+}
+.phase .body .meta a {
+  color: var(--cyan);
+  text-decoration: none;
+  margin-right: 12px;
+}
+.phase .body .meta a:hover { text-decoration: underline; }
+.phase .status {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  padding: 4px 10px;
+  border-radius: 100px;
+  white-space: nowrap;
+}
+.phase.done .status { background: rgba(16,185,129,0.12); color: var(--green); border: 1px solid var(--green); }
+.phase.now .status { background: rgba(6,182,212,0.12); color: var(--cyan); border: 1px solid var(--cyan); }
+.phase.next .status { background: rgba(245,158,11,0.12); color: var(--amber); border: 1px solid var(--amber); }
+.phase.parked .status { background: rgba(107,114,128,0.12); color: var(--grey); border: 1px solid var(--grey); }
+
+/* Architecture diagram */
+.arch {
+  background: var(--panel-strong);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 26px;
+  margin: 16px 0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: #cfcfcf;
+  white-space: pre;
+  overflow-x: auto;
+}
+.arch .pkg { color: var(--cyan); font-weight: 700; }
+.arch .repo { color: var(--purple); font-weight: 700; }
+.arch .note { color: #777; }
+
+/* Numbering callout */
+.callout {
+  background: rgba(245,158,11,0.08);
+  border: 1px solid rgba(245,158,11,0.3);
+  border-radius: 10px;
+  padding: 20px 24px;
+  margin: 22px 0;
+}
+.callout h4 {
+  color: var(--amber);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.78rem;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.callout p { color: #cfcfcf; }
+
+/* Glossary */
+.glossary {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 24px;
+}
+.glossary dt {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+  color: var(--cyan);
+  margin-top: 14px;
+}
+.glossary dt:first-child { margin-top: 0; }
+.glossary dd { color: #bbb; margin-top: 2px; margin-left: 8px; }
+
+footer {
+  text-align: center;
+  margin-top: 60px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+  color: #666;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+}
+footer a { color: #888; text-decoration: none; }
+footer a:hover { color: var(--cyan); }
+
+@media (max-width: 720px) {
+  .progress-stats { grid-template-columns: repeat(2, 1fr); }
+  .phase { grid-template-columns: 40px 1fr; }
+  .phase .status { grid-column: 2; justify-self: start; margin-top: 6px; }
+  .phase .num { font-size: 1.6rem; }
+  .header h1 { font-size: 2rem; }
+}
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="badge">PLATFORM REFACTOR · v1.0</div>
+  <h1>NACA Platform — Where we are</h1>
+  <p class="tagline">Cutting <strong>Siti</strong> the WhatsApp interface apart from <strong>NACA</strong> the platform, one phase at a time. Plain progress; no jargon.</p>
+  <div class="stamp">Last updated: 2026-05-11</div>
+</header>
+
+<main class="container">
+
+  <!-- Progress meter -->
+  <section class="progress-card">
+    <div class="progress-stats">
+      <div class="stat"><span class="num done">5</span><span class="label">Done</span></div>
+      <div class="stat"><span class="num now">1</span><span class="label">In&nbsp;progress</span></div>
+      <div class="stat"><span class="num next">1</span><span class="label">Next&nbsp;up</span></div>
+      <div class="stat"><span class="num parked">4</span><span class="label">Parked</span></div>
+    </div>
+    <div class="progress-bar"><div class="progress-fill" style="width:50%"></div></div>
+    <div class="progress-pct">5 of 10 phases shipped · ~50% complete</div>
+  </section>
+
+  <!-- Numbering apology -->
+  <div class="callout">
+    <h4>About the numbering</h4>
+    <p>Earlier versions of the plan had numbering like "Phase 2b" and "Phase 4a/4b" that got confusing. <strong>This page uses a clean flat numbering 1–10.</strong> The internal spec at <code>docs/spec/platform-refactor-v1.md</code> keeps the historical labels for traceability, but use this page as the source of truth for "where are we."</p>
+  </div>
+
+  <!-- Why -->
+  <section class="section">
+    <h2>Why this refactor</h2>
+    <div class="sublabel">The one-paragraph version</div>
+  </section>
+  <p style="color:#bbb; max-width: 780px; margin-bottom: 20px;">
+    Every tool, router rule, and specialist used to live inside <strong>siti-v2</strong>. That meant any new NACA interface — the mobile app, an MCP bridge for Claude Code sessions, future voice surfaces — would need to duplicate the same code or import from a WhatsApp repo. The refactor lifts the platform code (kernel, capabilities, router engine) into standalone <code>@naca/*</code> packages that any interface can consume. Siti stays as the WhatsApp interface; the platform stays platform.
+  </p>
+
+  <!-- Architecture -->
+  <section class="section">
+    <h2>Architecture target</h2>
+    <div class="sublabel">Three platform packages, many interfaces</div>
+  </section>
+  <pre class="arch">
+<span class="repo">broneotodak/naca</span>                          ← THE PLATFORM (this repo)
+  packages/
+    <span class="pkg">@naca/core</span>      shared kernel: postgrest, vault, gemini, heartbeat, send
+    <span class="pkg">@naca/tools</span>     25 capabilities (web, media, workspace, comms, state, ops)
+    <span class="pkg">@naca/router</span>    intent classifier (engine) + LLM tiebreak
+
+<span class="repo">broneotodak/siti-v2</span>                       ← WhatsApp interface
+  imports @naca/core + @naca/router + @naca/tools
+  keeps WhatsApp-specific: wacli transports, envelope mappers,
+  Siti's rule list + persona, the 8 specialists
+
+<span class="repo">broneotodak/naca-app</span>                      ← Mobile / web operator console (this site)
+  Flutter cross-platform · reads neo-brain via REST
+
+<span class="repo">broneotodak/naca-mcp-bridge</span>               ← Future: Claude Code MCP server
+  <span class="note">(planned — Phase 9)</span>
+  </pre>
+
+  <!-- Phase tracker -->
+  <section class="section">
+    <h2>Phases</h2>
+    <div class="sublabel">Top to bottom: shipped → in flight → next → parked</div>
+  </section>
+
+  <!-- 1 -->
+  <article class="phase done">
+    <div class="num">1</div>
+    <div class="body">
+      <h3>Monorepo scaffold</h3>
+      <p>Empty packages set up so the extraction phases have somewhere to land. <code>pnpm-workspace.yaml</code> + private root <code>package.json</code> + three empty <code>@naca/*</code> packages, each with their own <code>package.json</code>, <code>CLAUDE.md</code>, and a smoke test.</p>
+      <div class="meta">
+        <a href="https://github.com/broneotodak/naca/pull/1">naca&nbsp;PR&nbsp;#1</a>
+        commit <code>0bc0953</code>
+      </div>
+    </div>
+    <div class="status">✓ DONE</div>
+  </article>
+
+  <!-- 2 -->
+  <article class="phase done">
+    <div class="num">2</div>
+    <div class="body">
+      <h3>Extract <code>@naca/core</code> (shared kernel)</h3>
+      <p>Lifted siti-v2's daemon kernel into <code>@naca/core</code>: PostgREST wrapper, heartbeat publisher, Gemini clients, Google OAuth, abstract <code>SendModule</code>. Added a new <code>vault.js</code> helper that consolidates credential reads through one audit boundary.</p>
+      <div class="meta">
+        <a href="https://github.com/broneotodak/naca/pull/3">naca&nbsp;PR&nbsp;#3</a>
+        <a href="https://github.com/broneotodak/siti-v2/pull/57">siti-v2&nbsp;PR&nbsp;#57</a>
+        siti-v2 rewired · 440/440 tests pass
+      </div>
+    </div>
+    <div class="status">✓ DONE</div>
+  </article>
+
+  <!-- 3 -->
+  <article class="phase done">
+    <div class="num">3</div>
+    <div class="body">
+      <h3>Extract <code>@naca/tools</code> (the 25 capabilities)</h3>
+      <p>All 25 tools moved out of <code>siti-v2/src/dispatcher/tools/</code> into <code>@naca/tools</code>. Calendar, Gmail, Drive, generate-image, generate-video, recall, lookup-resource, make-call, web-search, read-url, recognize-face, save-face, chat-thread-state, and more. Tier-aware registry (<code>buildToolRegistry</code>) exposed cleanly.</p>
+      <div class="meta">
+        <a href="https://github.com/broneotodak/naca/pull/5">naca&nbsp;PR&nbsp;#5</a>
+        <a href="https://github.com/broneotodak/siti-v2/pull/58">siti-v2&nbsp;PR&nbsp;#58</a>
+        siti-v2 rewired · 360/360 tests pass
+      </div>
+    </div>
+    <div class="status">✓ DONE</div>
+  </article>
+
+  <!-- 4 -->
+  <article class="phase done">
+    <div class="num">4</div>
+    <div class="body">
+      <h3>Router engine (abstract)</h3>
+      <p>The classify orchestrator + LLM tiebreak lifted to <code>@naca/router</code> as an <em>injectable</em> engine. Caller provides the rule set, sender-tier lookup, and system prompt — engine itself knows nothing about WhatsApp or Siti.</p>
+      <div class="meta">
+        <a href="https://github.com/broneotodak/naca/pull/7">naca&nbsp;PR&nbsp;#7</a>
+        <a href="https://github.com/broneotodak/siti-v2/pull/59">siti-v2&nbsp;PR&nbsp;#59</a>
+        95/95 + 360/360 tests pass
+      </div>
+    </div>
+    <div class="status">✓ DONE</div>
+  </article>
+
+  <!-- 5 -->
+  <article class="phase now">
+    <div class="num">5</div>
+    <div class="body">
+      <h3>This documentations page</h3>
+      <p>You're reading it. Visual progress tracker for the refactor so we can see where we are without digging through PRs and memories. Replaces <code>presentation.neotodak.com/naca-overview.html</code> for refactor status.</p>
+      <div class="meta">naca-app · static page · live at <code>naca.neotodak.com/documentations.html</code></div>
+    </div>
+    <div class="status">● IN&nbsp;PROGRESS</div>
+  </article>
+
+  <!-- 6 -->
+  <article class="phase next">
+    <div class="num">6</div>
+    <div class="body">
+      <h3>Rewire the other fleet agents to <code>@naca/core</code></h3>
+      <p>Five agents currently still carry their own copies of the kernel code: <strong>dev-agent</strong>, <strong>planner-agent</strong>, <strong>reviewer-agent</strong>, <strong>deployer-agent</strong>, <strong>naca-backend</strong>. Each gets a small PR: add <code>@naca/core</code> as a file dep, change a few import paths, delete the duplicated daemon files. Low risk, mechanical.</p>
+      <div class="meta">~2h · 5 repos · separate PRs per repo</div>
+    </div>
+    <div class="status">▶ NEXT</div>
+  </article>
+
+  <!-- 7 -->
+  <article class="phase parked">
+    <div class="num">7</div>
+    <div class="body">
+      <h3>De-Siti the router rules + permissions + 8 specialists</h3>
+      <p>Today's rules hardcode Siti's WhatsApp identifiers, permissions hardcode Neo's WA JID, specialists embed "You are Siti…" persona prompts and reference WhatsApp-specific envelope fields. Lifting them to <code>@naca/router</code> needs proper IoC + an interface envelope contract — a bigger refactor than the previous phases. Verdict + reminder + task specialists are safety-critical (they merge PRs, fire reminders, decompose tasks), so this deserves a fresh focused session.</p>
+      <div class="meta">~6-10h · biggest single remaining piece · split into rules/permissions PR + specialists PR</div>
+    </div>
+    <div class="status">▢ PARKED</div>
+  </article>
+
+  <!-- 8 -->
+  <article class="phase parked">
+    <div class="num">8</div>
+    <div class="body">
+      <h3>siti-v2 slim-down to <code>src/interface/</code></h3>
+      <p>After Phase 7, siti-v2 reorganises so all remaining code is unambiguously interface-only: the daemon loop, source-specific envelope mappers, WhatsApp wiring. Updates siti-v2's CLAUDE.md to enforce the new boundary.</p>
+      <div class="meta">~2h · depends on Phase 7</div>
+    </div>
+    <div class="status">▢ PARKED</div>
+  </article>
+
+  <!-- 9 -->
+  <article class="phase parked">
+    <div class="num">9</div>
+    <div class="body">
+      <h3>NACA MCP bridge</h3>
+      <p>New repo <code>broneotodak/naca-mcp-bridge</code>. Exposes <code>@naca/tools</code> over MCP (HTTP + SSE) so Claude Code sessions can call the same capabilities Siti uses. Auth via Bearer token from the neo-brain vault.</p>
+      <div class="meta">~3h · new repo · pm2 process</div>
+    </div>
+    <div class="status">▢ PARKED</div>
+  </article>
+
+  <!-- 10 -->
+  <article class="phase parked">
+    <div class="num">10</div>
+    <div class="body">
+      <h3>Process re-hosting</h3>
+      <p>Separate sprint. Reconsider where each agent runs based on the machine's strengths, not where things already live. LLM-heavy agents (planner, reviewer, dev) move to <strong>tr-home</strong> (64GB + 7900 XTX GPU). Network-facing-only agents stay on Hetzner. Out of platform-refactor scope but tracked here for context.</p>
+      <div class="meta">Sprint TBD · not part of the refactor itself</div>
+    </div>
+    <div class="status">▢ PARKED</div>
+  </article>
+
+  <!-- Glossary -->
+  <section class="section">
+    <h2>Glossary</h2>
+    <div class="sublabel">Names that matter</div>
+  </section>
+  <dl class="glossary">
+    <dt>NACA</dt>
+    <dd>Neo's Agentic Centre Applications. The whole platform.</dd>
+    <dt>@naca/core</dt>
+    <dd>Shared kernel package. Postgrest, vault, heartbeat, Gemini clients, abstract send.</dd>
+    <dt>@naca/tools</dt>
+    <dd>Capability library — the 25 tools any NACA interface can dispatch.</dd>
+    <dt>@naca/router</dt>
+    <dd>Intent classifier engine + LLM tiebreak. Knows nothing about WhatsApp.</dd>
+    <dt>siti-v2</dt>
+    <dd>The WhatsApp interface. Now imports @naca/core + @naca/router + @naca/tools instead of carrying its own copies.</dd>
+    <dt>Interface</dt>
+    <dd>Any app that uses NACA. Currently siti-v2 (WhatsApp). Soon naca-app (mobile), naca-mcp-bridge (Claude Code).</dd>
+    <dt>neo-brain</dt>
+    <dd>The Supabase project (<code>xsunmervpyrplzarebva</code>) that holds memory, contacts, agent state. Accessed via <code>@todak/memory</code> SDK (lives in CTK, not NACA).</dd>
+  </dl>
+
+  <footer>
+    naca-app · documentations · spec at <a href="https://github.com/broneotodak/naca/blob/main/docs/spec/platform-refactor-v1.md">github.com/broneotodak/naca/docs/spec</a>
+  </footer>
+</main>
+
+</body>
+</html>
