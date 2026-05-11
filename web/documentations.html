@@ -497,14 +497,18 @@ footer a:hover { color: var(--cyan); }
   </article>
 
   <!-- Phase 8 -->
-  <article class="phase parked">
+  <article class="phase done">
     <div class="num">8</div>
     <div class="body">
       <h3>Process re-hosting</h3>
-      <p>Separate sprint. Reconsider where each agent runs based on the machine's strengths, not where things already live. LLM-heavy agents (planner, reviewer, dev) move to <strong>tr-home</strong> (64GB + 7900 XTX GPU). Network-facing-only agents stay on Hetzner. Out of platform-refactor scope but tracked here for context.</p>
-      <div class="meta">Sprint TBD · not part of the refactor itself</div>
+      <p>Shipped 2026-05-11. LLM-heavy agents moved from Hetzner to <strong>tr-home</strong> (Threadripper 7970X / 64GB / RX 7900 XTX, tailnet <code>100.126.89.7</code>) via hard cutover: <code>reviewer-agent</code>, <code>planner-agent</code>, <code>dev-agent</code>. Each now runs under pm2 on tr-home with <code>pm2 save</code> + a <code>pm2-neo</code> systemd unit so they survive reboot. Anthropic API is still the LLM backend; Ollama (qwen2.5:32b already loaded on the box) is a future-flexibility option, not wired this sprint.</p>
+      <p><strong>Stays on Hetzner (intentional):</strong> <code>siti-router</code>, <code>siti-ingest</code>, <code>naca-backend</code>, <code>naca-mcp-bridge-http</code>, <code>deployer-agent</code>, <code>face-service</code> — all network-facing (WA gateway, HTTP APIs, MCP bridge) or host-locally coupled (deployer SSH-deploys Hetzner pm2 processes).</p>
+      <div class="meta">
+        <a href="https://github.com/broneotodak/naca/pull/16">naca PR #16</a>
+        Hetzner pm2 left stopped (not deleted) for 24h rollback safety net
+      </div>
     </div>
-    <div class="status">▢ PENDING</div>
+    <div class="status">✓ DONE</div>
   </article>
 
   <!-- Glossary -->
