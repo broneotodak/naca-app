@@ -300,13 +300,13 @@ footer a:hover { color: var(--cyan); }
   <!-- Progress meter -->
   <section class="progress-card">
     <div class="progress-stats">
-      <div class="stat"><span class="num done">8</span><span class="label">Done</span></div>
+      <div class="stat"><span class="num done">9</span><span class="label">Done</span></div>
       <div class="stat"><span class="num next">0</span><span class="label">Next&nbsp;up</span></div>
-      <div class="stat"><span class="num parked">3</span><span class="label">Pending</span></div>
+      <div class="stat"><span class="num parked">2</span><span class="label">Pending</span></div>
       <div class="stat"><span class="num" style="color:#9ca3af">11</span><span class="label">Total</span></div>
     </div>
-    <div class="progress-bar"><div class="progress-fill" style="width:73%"></div></div>
-    <div class="progress-pct">8 of 11 phases shipped · ~73% complete</div>
+    <div class="progress-bar"><div class="progress-fill" style="width:82%"></div></div>
+    <div class="progress-pct">9 of 11 phases shipped · ~82% complete</div>
   </section>
 
   <!-- Numbering note -->
@@ -453,14 +453,17 @@ footer a:hover { color: var(--cyan); }
   </article>
 
   <!-- Phase 5 -->
-  <article class="phase parked">
+  <article class="phase done">
     <div class="num">5</div>
     <div class="body">
-      <h3>siti-v2 cosmetic reorg (scope reduced)</h3>
-      <p>With Phase 4b closed as no-op, Phase 5 no longer "shrinks" siti-v2 (nothing's being lifted). What remains: reshuffle <code>src/</code> so the interface vs platform-consumer boundary is obvious (e.g. <code>src/interface/</code> for daemon loop + envelope mappers + wacli wiring; keep router-config + specialists clearly grouped). Update <code>CLAUDE.md</code> to document the post-refactor boundary. Pure-cosmetic file reshuffling — no behaviour change.</p>
-      <div class="meta">~1h · no behaviour change · purely organisational</div>
+      <h3>siti-v2 <code>src/interface/</code> reorg</h3>
+      <p>Moved the WhatsApp-specific bits into a dedicated <code>src/interface/</code> directory so the boundary is obvious. <code>cycle.js</code>, <code>envelope.js</code>, <code>sources.js</code>, <code>gemini-prompts.js</code>, <code>outbound-bridge.js</code>, and the entire <code>send/</code> directory (incl. wacli transports) moved via <code>git mv</code>; history preserved. <code>src/router/</code>, <code>src/dispatcher/</code>, <code>src/daemon/</code> (now just deployer + dispatch-deps) stay put. CLAUDE.md gained a "Repository layout" section documenting where each piece lives. No behaviour change — 360/360 tests pass; siti-router restarted clean post-deploy.</p>
+      <div class="meta">
+        <a href="https://github.com/broneotodak/siti-v2/pull/60">siti-v2&nbsp;PR&nbsp;#60</a>
+        commit <code>bcad2e2</code>
+      </div>
     </div>
-    <div class="status">▢ PENDING</div>
+    <div class="status">✓ DONE</div>
   </article>
 
   <!-- Phase 6 -->
