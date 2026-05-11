@@ -300,13 +300,13 @@ footer a:hover { color: var(--cyan); }
   <!-- Progress meter -->
   <section class="progress-card">
     <div class="progress-stats">
-      <div class="stat"><span class="num done">7</span><span class="label">Done</span></div>
+      <div class="stat"><span class="num done">8</span><span class="label">Done</span></div>
       <div class="stat"><span class="num next">0</span><span class="label">Next&nbsp;up</span></div>
-      <div class="stat"><span class="num parked">4</span><span class="label">Pending</span></div>
+      <div class="stat"><span class="num parked">3</span><span class="label">Pending</span></div>
       <div class="stat"><span class="num" style="color:#9ca3af">11</span><span class="label">Total</span></div>
     </div>
-    <div class="progress-bar"><div class="progress-fill" style="width:64%"></div></div>
-    <div class="progress-pct">7 of 11 phases shipped · ~64% complete</div>
+    <div class="progress-bar"><div class="progress-fill" style="width:73%"></div></div>
+    <div class="progress-pct">8 of 11 phases shipped · ~73% complete</div>
   </section>
 
   <!-- Numbering note -->
@@ -439,23 +439,26 @@ footer a:hover { color: var(--cyan); }
   </article>
 
   <!-- Phase 4b -->
-  <article class="phase parked">
+  <article class="phase done">
     <div class="num">4b</div>
     <div class="body">
-      <h3>De-Siti the router rules + permissions + 8 specialists</h3>
-      <p>Today's rules hardcode Siti's WhatsApp identifiers, permissions hardcode Neo's WA JID, specialists embed "You are Siti…" persona prompts and reference WhatsApp-specific envelope fields (<code>envelope.metadata.wa_message_id</code>). Lifting them to <code>@naca/router</code> needs proper IoC + an interface envelope contract — a bigger refactor than the previous phases. Verdict + reminder + task specialists are safety-critical (they merge PRs, fire reminders, decompose tasks), so this deserves a fresh focused session.</p>
-      <div class="meta">~6-10h · biggest single remaining piece · two sub-PRs (rules+permissions, then specialists)</div>
+      <h3>Router rules + permissions + specialists — closed as no-op</h3>
+      <p>Original plan was to lift <code>rules.js</code>, <code>permissions.js</code>, and 8 specialists out of siti-v2 into <code>@naca/router</code>. <em>Same outcome as Phase 2b: the premise didn't hold on inspection.</em> Rule definitions are WhatsApp/BM-English text patterns (other interfaces don't have natural-language input). Permissions queries the WA-operational <code>contacts</code> table with JID normalization (naca-app uses mobile user IDs; MCP uses bearer tokens). Specialist business logic differs per interface (CHAT for WA ≠ CHAT for mobile ≠ CHAT for MCP). siti-v2's rules/permissions/specialists are correctly the WhatsApp adapter consuming the engine that <strong>Phase 4a already lifted</strong>. Future interfaces build their own adapters on the same engine. <strong>Closed as no-op.</strong></p>
+      <div class="meta">
+        <a href="https://github.com/broneotodak/naca/pull/12">naca&nbsp;PR&nbsp;#12</a>
+        spec closure entry
+      </div>
     </div>
-    <div class="status">▢ PENDING</div>
+    <div class="status">✓ DONE</div>
   </article>
 
   <!-- Phase 5 -->
   <article class="phase parked">
     <div class="num">5</div>
     <div class="body">
-      <h3>siti-v2 slim-down to <code>src/interface/</code></h3>
-      <p>After Phase 4b, siti-v2 reorganises so all remaining code is unambiguously interface-only: the daemon loop, source-specific envelope mappers, WhatsApp wiring. Updates siti-v2's CLAUDE.md to enforce the new boundary.</p>
-      <div class="meta">~2h · depends on Phase 4b</div>
+      <h3>siti-v2 cosmetic reorg (scope reduced)</h3>
+      <p>With Phase 4b closed as no-op, Phase 5 no longer "shrinks" siti-v2 (nothing's being lifted). What remains: reshuffle <code>src/</code> so the interface vs platform-consumer boundary is obvious (e.g. <code>src/interface/</code> for daemon loop + envelope mappers + wacli wiring; keep router-config + specialists clearly grouped). Update <code>CLAUDE.md</code> to document the post-refactor boundary. Pure-cosmetic file reshuffling — no behaviour change.</p>
+      <div class="meta">~1h · no behaviour change · purely organisational</div>
     </div>
     <div class="status">▢ PENDING</div>
   </article>
