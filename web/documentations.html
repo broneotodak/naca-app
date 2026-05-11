@@ -300,13 +300,13 @@ footer a:hover { color: var(--cyan); }
   <!-- Progress meter -->
   <section class="progress-card">
     <div class="progress-stats">
-      <div class="stat"><span class="num done">9</span><span class="label">Done</span></div>
+      <div class="stat"><span class="num done">10</span><span class="label">Done</span></div>
       <div class="stat"><span class="num next">0</span><span class="label">Next&nbsp;up</span></div>
-      <div class="stat"><span class="num parked">2</span><span class="label">Pending</span></div>
+      <div class="stat"><span class="num parked">1</span><span class="label">Pending</span></div>
       <div class="stat"><span class="num" style="color:#9ca3af">11</span><span class="label">Total</span></div>
     </div>
-    <div class="progress-bar"><div class="progress-fill" style="width:82%"></div></div>
-    <div class="progress-pct">9 of 11 phases shipped · ~82% complete</div>
+    <div class="progress-bar"><div class="progress-fill" style="width:91%"></div></div>
+    <div class="progress-pct">10 of 11 phases shipped · ~91% complete</div>
   </section>
 
   <!-- Numbering note -->
@@ -481,14 +481,18 @@ footer a:hover { color: var(--cyan); }
   </article>
 
   <!-- Phase 7 -->
-  <article class="phase parked">
+  <article class="phase done">
     <div class="num">7</div>
     <div class="body">
-      <h3>NACA MCP bridge</h3>
-      <p>New repo <code>broneotodak/naca-mcp-bridge</code>. Exposes <code>@naca/tools</code> over MCP (HTTP + SSE) so Claude Code sessions can call the same capabilities Siti uses. Auth via Bearer token from the neo-brain vault. Open-tier tools available by default; owner-only require additional gate.</p>
-      <div class="meta">~3h · new repo · pm2 process</div>
+      <h3>NACA MCP bridge (MVP)</h3>
+      <p>New repo <a href="https://github.com/broneotodak/naca-mcp-bridge"><code>broneotodak/naca-mcp-bridge</code></a>. Exposes 15 envelope-free <code>@naca/tools</code> over MCP <strong>stdio</strong> so Claude Code sessions can call the same capabilities Siti uses. State/web/workspace tools available: <code>recall</code>, <code>lookup_resource</code>, <code>read_url</code>, <code>web_search</code>, <code>time_now</code>, <code>gmail_*</code>, <code>drive_search/read</code>, <code>calendar_*</code>, <code>check_agent_status</code>, <code>list_media</code>, <code>search_person</code>, <code>get_person_facts</code>. Wire into Claude Code via <code>~/.claude/settings.json</code> <code>mcpServers</code> block — see repo README. <em>Phase 7b (deferred): HTTP+SSE transport, bearer-token auth via <code>@naca/core/vault</code>, pm2 deploy on Hetzner for remote multi-tenant access.</em></p>
+      <div class="meta">
+        <a href="https://github.com/broneotodak/naca-mcp-bridge">naca-mcp-bridge</a>
+        commit <code>7c92fd6</code>
+        7/7 tests pass
+      </div>
     </div>
-    <div class="status">▢ PENDING</div>
+    <div class="status">✓ DONE</div>
   </article>
 
   <!-- Phase 8 -->
