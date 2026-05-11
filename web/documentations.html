@@ -300,13 +300,13 @@ footer a:hover { color: var(--cyan); }
   <!-- Progress meter -->
   <section class="progress-card">
     <div class="progress-stats">
-      <div class="stat"><span class="num done">6</span><span class="label">Done</span></div>
-      <div class="stat"><span class="num next">1</span><span class="label">Next&nbsp;up</span></div>
+      <div class="stat"><span class="num done">7</span><span class="label">Done</span></div>
+      <div class="stat"><span class="num next">0</span><span class="label">Next&nbsp;up</span></div>
       <div class="stat"><span class="num parked">4</span><span class="label">Pending</span></div>
       <div class="stat"><span class="num" style="color:#9ca3af">11</span><span class="label">Total</span></div>
     </div>
-    <div class="progress-bar"><div class="progress-fill" style="width:55%"></div></div>
-    <div class="progress-pct">6 of 11 phases shipped · ~55% complete</div>
+    <div class="progress-bar"><div class="progress-fill" style="width:64%"></div></div>
+    <div class="progress-pct">7 of 11 phases shipped · ~64% complete</div>
   </section>
 
   <!-- Numbering note -->
@@ -395,14 +395,17 @@ footer a:hover { color: var(--cyan); }
   </article>
 
   <!-- Phase 2b -->
-  <article class="phase next">
+  <article class="phase done">
     <div class="num">2b</div>
     <div class="body">
-      <h3>Rewire the other fleet agents to <code>@naca/core</code></h3>
-      <p>Five agents currently still carry their own copies of the kernel code: <strong>dev-agent</strong>, <strong>planner-agent</strong>, <strong>reviewer-agent</strong>, <strong>deployer-agent</strong>, <strong>naca-backend</strong>. Each gets a small PR: add <code>@naca/core</code> as a file dep, change a few import paths, delete the duplicated daemon files. Low risk, mechanical. <em>Phase 2b sub-label because it completes the core-extraction work for the rest of the fleet.</em></p>
-      <div class="meta">~2h · 5 repos · separate PRs per repo</div>
+      <h3>Other fleet agents — closed as no-op</h3>
+      <p>Original premise was that 5 agents (<strong>dev-agent</strong>, <strong>planner-agent</strong>, <strong>reviewer-agent</strong>, <strong>deployer-agent</strong>, <strong>naca-backend</strong>) carry duplicate copies of siti-v2's daemon kernel. <em>Verified on 2026-05-11 — they don't.</em> <code>deployer-agent</code> was rewired to <code>@naca/core</code> as part of Phase 2 (lives inside siti-v2). The other four either use <code>@supabase/supabase-js</code> directly (dev / reviewer / planner — different pattern, intentional choice) or don't touch neo-brain via SDK at all (naca-backend uses native HTTP). Migrating the three Supabase-SDK agents would be a real refactor with stylistic gain only. <strong>Closed as no-op</strong>; vault-only credential migration (hard rule #5) deferred.</p>
+      <div class="meta">
+        <a href="https://github.com/broneotodak/naca/pull/11">naca&nbsp;PR&nbsp;#11</a>
+        spec closure entry
+      </div>
     </div>
-    <div class="status">▶ NEXT</div>
+    <div class="status">✓ DONE</div>
   </article>
 
   <!-- Phase 3 -->
