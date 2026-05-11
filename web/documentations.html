@@ -4,9 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
-<title>NACA — Platform Refactor · Progress</title>
+<title>NACA — Documentation · Operator + Refactor Progress</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.0/dist/umd/supabase.min.js"></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 :root {
@@ -14,6 +16,7 @@
   --blue: #3b82f6;
   --purple: #8b5cf6;
   --green: #10b981;
+  --green-soft: #4ade80;
   --amber: #f59e0b;
   --red: #ef4444;
   --grey: #6b7280;
@@ -22,341 +25,1443 @@
   --panel: rgba(255,255,255,0.04);
   --panel-strong: rgba(255,255,255,0.06);
   --border: rgba(255,255,255,0.08);
+  --border-soft: rgba(255,255,255,0.05);
 }
 html { scroll-behavior: smooth; }
 body {
   font-family: 'Outfit', system-ui, sans-serif;
   background: linear-gradient(135deg, #0a0a0f 0%, #0d1520 50%, #0a0a0f 100%);
-  color: #e0e0e0;
-  min-height: 100vh;
-  padding-bottom: 80px;
+  color: #e0e0e0; min-height: 100vh; padding-bottom: 80px;
   line-height: 1.55;
 }
 
-.header {
-  padding: 60px 30px 30px;
-  text-align: center;
-  border-bottom: 1px solid var(--border);
-}
-.header .badge {
-  display: inline-block;
-  padding: 4px 12px;
-  background: rgba(6,182,212,0.15);
-  border: 1px solid var(--cyan);
-  border-radius: 100px;
+/* Header */
+.header { padding: 50px 30px 30px; text-align: center; border-bottom: 1px solid var(--border); }
+.header .badge { display: inline-block; padding: 4px 12px; background: rgba(6,182,212,0.15); border: 1px solid var(--cyan); border-radius: 100px; font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; color: var(--cyan); margin-bottom: 16px; }
+.header h1 { font-size: 3rem; font-weight: 800; background: var(--gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 12px; letter-spacing: -1px; }
+.header .tagline { color: #aaa; font-size: 1.15rem; max-width: 760px; margin: 0 auto; }
+
+/* === LEFT SIDEBAR NAV === */
+.sidebar {
+  position: fixed; top: 0; left: 0; bottom: 0; width: 220px;
+  background: rgba(10,10,10,0.92); backdrop-filter: blur(8px);
+  border-right: 1px solid var(--border);
+  padding: 24px 16px; overflow-y: auto;
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.7rem;
-  color: var(--cyan);
-  margin-bottom: 18px;
+  z-index: 100;
 }
-.header h1 {
-  font-size: 2.75rem;
-  font-weight: 800;
-  background: var(--gradient);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  margin-bottom: 12px;
-  letter-spacing: -1px;
-}
-.header .tagline {
-  color: #aaa;
-  font-size: 1.05rem;
-  max-width: 700px;
-  margin: 0 auto;
-}
-.header .stamp {
-  margin-top: 18px;
-  color: #666;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.75rem;
+.sidebar .brand { color: var(--cyan); font-weight: 700; font-size: 0.9rem; margin-bottom: 4px; letter-spacing: 1px; }
+.sidebar .brand-sub { color: #666; font-size: 0.7rem; margin-bottom: 22px; }
+.sidebar .nav-section-label { color: #555; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 1.5px; margin: 18px 0 6px 8px; }
+.sidebar a { display: block; color: #aaa; text-decoration: none; font-size: 0.82rem; padding: 7px 10px; border-radius: 6px; transition: all 0.15s; border-left: 2px solid transparent; }
+.sidebar a:hover { background: rgba(6,182,212,0.06); color: var(--cyan); }
+.sidebar a.active { background: rgba(6,182,212,0.12); color: var(--cyan); border-left-color: var(--cyan); font-weight: 600; }
+.sidebar .live-pill-mini { margin-top: 22px; padding: 8px 10px; background: rgba(0,0,0,0.4); border: 1px solid var(--border); border-radius: 6px; font-size: 0.72rem; color: #888; }
+
+/* Mobile: collapse to top horizontal */
+@media (max-width: 900px) {
+  .sidebar { position: static; width: auto; border-right: none; border-bottom: 1px solid var(--border); padding: 12px 16px; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+  .sidebar .brand, .sidebar .brand-sub, .sidebar .nav-section-label { display: none; }
+  .sidebar a { padding: 4px 8px; font-size: 0.72rem; border-left: none; border-bottom: 2px solid transparent; }
+  .sidebar a.active { border-left: none; border-bottom-color: var(--cyan); }
+  .sidebar .live-pill-mini { margin-top: 0; margin-left: auto; padding: 4px 8px; font-size: 0.65rem; }
 }
 
-.container { max-width: 1100px; margin: 0 auto; padding: 30px; }
+.live-pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; background: rgba(16,185,129,0.12); border: 1px solid var(--green); border-radius: 100px; font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; color: var(--green); margin-top: 14px; }
+.live-pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: pulse 1.6s infinite; }
+.live-pill.error { background: rgba(239,68,68,0.12); border-color: var(--red); color: var(--red); }
+.live-pill.error .dot { background: var(--red); animation: none; }
+@keyframes pulse { 50% { opacity: 0.3; } }
 
-/* Progress meter */
-.progress-card {
-  background: var(--panel-strong);
+.container { max-width: 1180px; margin: 0 auto; padding: 30px; margin-left: 220px; }
+@media (max-width: 900px) { .container { margin-left: 0; } }
+
+/* Section heading */
+.section { margin: 56px 0 22px; padding-bottom: 8px; border-bottom: 1px solid var(--border); scroll-margin-top: 16px; }
+.section h2 { font-size: 1.6rem; font-weight: 700; margin-bottom: 4px; }
+.section p { color: #888; font-size: 0.95rem; }
+
+/* Generic cards */
+.grid { display: grid; gap: 14px; }
+.grid-2 { grid-template-columns: repeat(2, 1fr); }
+.grid-3 { grid-template-columns: repeat(3, 1fr); }
+.grid-4 { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 900px) { .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; } }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 18px; }
+.card.cyan { border-left: 3px solid var(--cyan); }
+.card.blue { border-left: 3px solid var(--blue); }
+.card.purple { border-left: 3px solid var(--purple); }
+.card.green { border-left: 3px solid var(--green); }
+.card.amber { border-left: 3px solid var(--amber); }
+.card.red { border-left: 3px solid var(--red); }
+.card h3 { font-size: 1.05rem; font-weight: 700; margin-bottom: 8px; }
+.card .role { color: #aaa; font-size: 0.85rem; margin-bottom: 10px; }
+.card .specs { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: #666; margin-bottom: 12px; }
+.card .runs { font-size: 0.85rem; }
+.card .runs strong { color: #ddd; }
+.card .runs ul { list-style: none; padding-left: 0; margin-top: 4px; }
+.card .runs li { padding: 2px 0; padding-left: 14px; position: relative; color: #aaa; }
+.card .runs li::before { content: "›"; position: absolute; left: 0; color: var(--cyan); }
+.card .badge { display: inline-block; padding: 2px 8px; border-radius: 100px; font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; margin-right: 4px; }
+.card .badge.live { background: rgba(16,185,129,0.15); color: var(--green); border: 1px solid var(--green); }
+.card .badge.partial { background: rgba(245,158,11,0.15); color: var(--amber); border: 1px solid var(--amber); }
+.card .badge.idle { background: rgba(107,114,128,0.15); color: var(--grey); border: 1px solid var(--grey); }
+.card .badge.future { background: rgba(139,92,246,0.15); color: var(--purple); border: 1px solid var(--purple); }
+
+/* Mermaid */
+.diagram { background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: 14px; padding: 24px; margin: 16px 0; overflow-x: auto; }
+.mermaid { display: flex; justify-content: center; }
+
+/* Tables */
+table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 0.9rem; }
+thead th { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); color: #aaa; font-weight: 600; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.5px; }
+tbody td { padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.03); }
+tbody tr:hover { background: rgba(255,255,255,0.02); }
+.mono { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: #aaa; }
+
+/* Callouts */
+.callout { background: rgba(139,92,246,0.06); border: 1px solid rgba(139,92,246,0.3); border-left: 3px solid var(--purple); border-radius: 10px; padding: 16px 20px; margin: 20px 0; }
+.callout strong { color: var(--purple); }
+.callout.amber { background: rgba(245,158,11,0.06); border-color: rgba(245,158,11,0.3); border-left-color: var(--amber); }
+.callout.amber strong { color: var(--amber); }
+.callout.green { background: rgba(16,185,129,0.06); border-color: rgba(16,185,129,0.3); border-left-color: var(--green); }
+.callout.green strong { color: var(--green); }
+
+/* Code samples */
+.code { background: rgba(0,0,0,0.4); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: #cbd5e1; overflow-x: auto; margin: 10px 0; }
+.code .c { color: var(--grey); }    /* comment */
+.code .k { color: var(--purple); }  /* keyword */
+.code .s { color: var(--green-soft); } /* string */
+.code .fn { color: var(--cyan); }   /* function */
+
+/* === MILESTONE / TPC-STYLE PROGRESS === */
+.progress-overview {
+  background: linear-gradient(135deg, rgba(6,182,212,0.05), rgba(139,92,246,0.04));
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 26px;
-  margin: 30px 0 50px;
+  border-radius: 18px; padding: 28px 30px; margin: 16px 0 24px;
 }
-.progress-stats {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-  margin-bottom: 22px;
+.progress-overview-top { display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 16px; margin-bottom: 22px; }
+.progress-overview-left .progress-label { color: #888; font-size: 0.85rem; margin-bottom: 4px; }
+.progress-overview-left .progress-percent { font-size: 3rem; font-weight: 800; line-height: 1; background: var(--gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.progress-overview-right { text-align: right; color: #aaa; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; }
+.progress-overview-right .row { margin-bottom: 4px; }
+.progress-overview-right .num { color: #fff; font-weight: 600; margin-right: 4px; }
+
+.progress-bar-large {
+  height: 14px; width: 100%;
+  background: rgba(0,0,0,0.4); border-radius: 100px; overflow: hidden;
+  position: relative;
+  margin-bottom: 24px;
 }
-.stat {
-  text-align: center;
-  padding: 14px 8px;
-  background: rgba(0,0,0,0.25);
-  border-radius: 8px;
-  border: 1px solid var(--border);
-}
-.stat .num {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 1.9rem;
-  font-weight: 700;
-  display: block;
-  margin-bottom: 4px;
-}
-.stat .num.done { color: var(--green); }
-.stat .num.now { color: var(--cyan); }
-.stat .num.next { color: var(--amber); }
-.stat .num.parked { color: var(--grey); }
-.stat .label {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.7rem;
-  color: #888;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-}
-.progress-bar {
-  height: 10px;
-  background: rgba(0,0,0,0.4);
-  border-radius: 5px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-}
-.progress-fill {
-  height: 100%;
-  background: var(--gradient);
-  width: 50%;
-  border-radius: 5px;
-}
-.progress-pct {
-  margin-top: 10px;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.85rem;
-  color: #aaa;
-  text-align: center;
+.progress-bar-large .fill {
+  height: 100%; background: linear-gradient(90deg, var(--green) 0%, var(--green-soft) 100%);
+  border-radius: 100px; transition: width 0.6s ease;
+  box-shadow: 0 0 12px rgba(16,185,129,0.4);
 }
 
-/* Sections */
-.section {
-  margin: 40px 0 18px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--border);
+/* Phase stepper */
+.phase-stepper { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.phase-step { display: flex; align-items: center; gap: 6px; }
+.phase-step-circle {
+  width: 38px; height: 38px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  border: 2px solid var(--grey); background: rgba(0,0,0,0.3);
+  color: #888; font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; font-weight: 600;
+  flex-shrink: 0; transition: all 0.2s;
 }
-.section h2 {
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: #fff;
-}
-.section .sublabel {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.75rem;
-  color: #888;
-  margin-top: 4px;
-}
+.phase-step-circle.done { border-color: var(--green); background: rgba(16,185,129,0.15); color: var(--green); }
+.phase-step-circle.partial { border-color: var(--amber); background: rgba(245,158,11,0.15); color: var(--amber); }
+.phase-step-circle.new { border-color: var(--purple); background: rgba(139,92,246,0.15); color: var(--purple); }
+.phase-step-arrow { color: var(--grey); font-size: 0.85rem; opacity: 0.5; }
 
-/* Phase cards */
-.phase {
+/* Per-phase milestone cards */
+.milestone-card {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 22px 24px;
-  margin: 14px 0;
-  display: grid;
-  grid-template-columns: 60px 1fr auto;
-  gap: 22px;
-  align-items: start;
-  transition: border-color 0.15s;
+  border-radius: 16px; padding: 20px 24px;
+  margin: 14px 0; position: relative;
 }
-.phase:hover { border-color: rgba(255,255,255,0.18); }
-.phase.done { border-left: 3px solid var(--green); }
-.phase.now { border-left: 3px solid var(--cyan); background: rgba(6,182,212,0.04); }
-.phase.next { border-left: 3px solid var(--amber); }
-.phase.parked { border-left: 3px solid var(--grey); opacity: 0.78; }
-.phase .num {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 2.2rem;
-  font-weight: 700;
-  color: #444;
-  text-align: center;
-  line-height: 1;
-}
-.phase.done .num { color: var(--green); }
-.phase.now .num { color: var(--cyan); }
-.phase.next .num { color: var(--amber); }
-.phase .body h3 {
-  font-size: 1.15rem;
-  font-weight: 600;
-  color: #fff;
-  margin-bottom: 6px;
-}
-.phase .body p { color: #bbb; margin-bottom: 10px; }
-.phase .body .meta {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.75rem;
-  color: #777;
-  margin-top: 10px;
-}
-.phase .body .meta a {
-  color: var(--cyan);
-  text-decoration: none;
-  margin-right: 12px;
-}
-.phase .body .meta a:hover { text-decoration: underline; }
-.phase .status {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 1px;
-  padding: 4px 10px;
-  border-radius: 100px;
-  white-space: nowrap;
-}
-.phase.done .status { background: rgba(16,185,129,0.12); color: var(--green); border: 1px solid var(--green); }
-.phase.now .status { background: rgba(6,182,212,0.12); color: var(--cyan); border: 1px solid var(--cyan); }
-.phase.next .status { background: rgba(245,158,11,0.12); color: var(--amber); border: 1px solid var(--amber); }
-.phase.parked .status { background: rgba(107,114,128,0.12); color: var(--grey); border: 1px solid var(--grey); }
+.milestone-card.done { border: 1px solid rgba(16,185,129,0.4); background: rgba(16,185,129,0.04); }
+.milestone-card.partial { border: 1px solid rgba(245,158,11,0.35); background: rgba(245,158,11,0.04); }
+.milestone-card.new { border: 1px solid rgba(139,92,246,0.4); background: rgba(139,92,246,0.04); }
+.milestone-card.todo { opacity: 0.85; }
 
-/* Architecture diagram */
-.arch {
-  background: var(--panel-strong);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 26px;
-  margin: 16px 0;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.85rem;
-  line-height: 1.6;
-  color: #cfcfcf;
-  white-space: pre;
-  overflow-x: auto;
+.milestone-header { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 14px; }
+.milestone-status-icon {
+  width: 36px; height: 36px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.1rem; flex-shrink: 0;
 }
-.arch .pkg { color: var(--cyan); font-weight: 700; }
-.arch .repo { color: var(--purple); font-weight: 700; }
-.arch .note { color: #777; }
+.milestone-status-icon.done { background: rgba(16,185,129,0.15); border: 1px solid var(--green); color: var(--green); }
+.milestone-status-icon.partial { background: rgba(245,158,11,0.15); border: 1px solid var(--amber); color: var(--amber); }
+.milestone-status-icon.new { background: rgba(139,92,246,0.15); border: 1px solid var(--purple); color: var(--purple); }
+.milestone-status-icon.todo { background: rgba(107,114,128,0.15); border: 1px solid var(--grey); color: var(--grey); }
+.milestone-titles { flex: 1; }
+.milestone-titles h3 { font-size: 1.1rem; font-weight: 600; margin-bottom: 3px; color: #f0f0f0; }
+.milestone-titles .desc { font-size: 0.82rem; color: #888; }
+.milestone-badge {
+  position: absolute; top: 18px; right: 20px;
+  padding: 3px 10px; border-radius: 100px;
+  font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; font-weight: 600;
+}
+.milestone-badge.done { background: rgba(16,185,129,0.18); color: var(--green); border: 1px solid var(--green); }
+.milestone-badge.partial { background: rgba(245,158,11,0.18); color: var(--amber); border: 1px solid var(--amber); }
+.milestone-badge.new { background: rgba(139,92,246,0.18); color: var(--purple); border: 1px solid var(--purple); }
+.milestone-badge.todo { background: rgba(107,114,128,0.18); color: var(--grey); border: 1px solid var(--grey); }
 
-/* Numbering callout */
-.callout {
-  background: rgba(245,158,11,0.08);
-  border: 1px solid rgba(245,158,11,0.3);
-  border-radius: 10px;
-  padding: 20px 24px;
-  margin: 22px 0;
-}
-.callout h4 {
-  color: var(--amber);
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.78rem;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  margin-bottom: 8px;
-}
-.callout p { color: #cfcfcf; }
+.milestone-progress-row { display: flex; align-items: center; gap: 14px; margin: 10px 0 16px; }
+.milestone-progress-bar { flex: 1; height: 6px; background: rgba(0,0,0,0.4); border-radius: 100px; overflow: hidden; }
+.milestone-progress-bar .fill { height: 100%; background: var(--green-soft); border-radius: 100px; transition: width 0.4s; }
+.milestone-progress-bar .fill.partial { background: var(--amber); }
+.milestone-progress-bar .fill.todo { background: var(--grey); }
+.milestone-count { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: #aaa; flex-shrink: 0; }
 
-/* Glossary */
-.glossary {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 20px 24px;
+.item-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px;
+  padding-top: 4px;
 }
-.glossary dt {
-  font-family: 'JetBrains Mono', monospace;
-  font-weight: 600;
-  color: var(--cyan);
-  margin-top: 14px;
+@media (max-width: 720px) { .item-grid { grid-template-columns: 1fr; } }
+.item-row { display: flex; align-items: flex-start; gap: 8px; padding: 4px 0; font-size: 0.86rem; }
+.item-check { flex-shrink: 0; line-height: 1.4; opacity: 0.8; }
+.item-text { flex: 1; line-height: 1.4; }
+.item-row.done .item-text { color: var(--green-soft); text-decoration: line-through; opacity: 0.85; }
+.item-row.done .item-check { color: var(--green); opacity: 1; }
+.item-row.deferred .item-text { color: #888; }
+.item-row.deferred .item-check { color: var(--amber); opacity: 0.7; }
+.item-row.todo .item-text { color: #aaa; }
+.item-row.todo .item-check { color: var(--grey); }
+.item-row.partial .item-text { color: var(--amber); }
+.item-row.new .item-text { color: var(--purple); }
+.item-tag {
+  display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 100px;
+  font-family: 'JetBrains Mono', monospace; font-size: 0.6rem; letter-spacing: 0.5px;
+  background: rgba(139,92,246,0.15); color: var(--purple); border: 1px solid rgba(139,92,246,0.4);
+  vertical-align: middle;
 }
-.glossary dt:first-child { margin-top: 0; }
-.glossary dd { color: #bbb; margin-top: 2px; margin-left: 8px; }
+.milestone-footer-note {
+  margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-soft);
+  font-size: 0.8rem; color: #888;
+}
 
-footer {
-  text-align: center;
-  margin-top: 60px;
-  padding-top: 24px;
-  border-top: 1px solid var(--border);
-  color: #666;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.75rem;
+/* Live agent cards */
+.agent-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.agent-card {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 12px; padding: 14px 16px; transition: border-color 0.2s;
 }
-footer a { color: #888; text-decoration: none; }
-footer a:hover { color: var(--cyan); }
+.agent-card.live { border-left: 3px solid var(--green); }
+.agent-card.degraded { border-left: 3px solid var(--amber); }
+.agent-card.offline, .agent-card.unknown { border-left: 3px solid var(--red); }
+.agent-card .head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.agent-card .emoji { font-size: 1.2rem; }
+.agent-card .name { font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: 0.95rem; flex: 1; }
+.agent-card .role { color: #aaa; font-size: 0.85rem; margin-bottom: 8px; }
+.agent-card .meta { font-size: 0.75rem; color: #666; font-family: 'JetBrains Mono', monospace; display: flex; gap: 12px; flex-wrap: wrap; }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.dot.live { background: var(--green); box-shadow: 0 0 8px var(--green); }
+.dot.degraded { background: var(--amber); }
+.dot.offline, .dot.unknown { background: var(--red); }
 
+/* "How NACA works" — operator/CTK/SDK explainer */
+.layer-card {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 14px; padding: 18px 20px;
+}
+.layer-card .layer-num {
+  display: inline-block; padding: 2px 10px; border-radius: 100px;
+  font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; letter-spacing: 1px;
+  background: rgba(6,182,212,0.12); color: var(--cyan); border: 1px solid var(--cyan);
+  margin-bottom: 10px;
+}
+.layer-card h3 { font-size: 1.05rem; font-weight: 700; margin-bottom: 6px; }
+.layer-card .lead { font-size: 0.88rem; color: #aaa; margin-bottom: 12px; }
+.layer-card ul { list-style: none; padding: 0; font-size: 0.83rem; color: #aaa; }
+.layer-card li { padding: 3px 0 3px 14px; position: relative; }
+.layer-card li::before { content: "›"; position: absolute; left: 0; color: var(--cyan); }
+
+.foot { text-align: center; color: #555; margin-top: 60px; font-size: 0.8rem; font-family: 'JetBrains Mono', monospace; padding: 0 20px; }
+
+/* ===== Platform refactor v1 · engineering history (merged from old documentations.html) ===== */
+.refactor-progress { background: var(--panel-strong); border: 1px solid var(--border); border-radius: 12px; padding: 26px; margin: 24px 0 36px; }
+.refactor-progress .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 22px; }
+.refactor-progress .stat { text-align: center; padding: 14px 8px; background: rgba(0,0,0,0.25); border-radius: 8px; border: 1px solid var(--border); }
+.refactor-progress .stat .num { font-family: 'JetBrains Mono', monospace; font-size: 1.9rem; font-weight: 700; display: block; margin-bottom: 4px; }
+.refactor-progress .stat .num.done { color: var(--green); }
+.refactor-progress .stat .num.now { color: var(--cyan); }
+.refactor-progress .stat .num.next { color: var(--amber); }
+.refactor-progress .stat .num.parked { color: var(--grey); }
+.refactor-progress .stat .label { font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; color: #888; text-transform: uppercase; letter-spacing: 1px; }
+.refactor-progress .bar { height: 10px; background: rgba(0,0,0,0.4); border-radius: 5px; overflow: hidden; border: 1px solid var(--border); }
+.refactor-progress .bar .fill { height: 100%; background: var(--gradient); border-radius: 5px; }
+.refactor-progress .pct { margin-top: 10px; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; color: #aaa; text-align: center; }
+@media (max-width: 720px) { .refactor-progress .stats { grid-template-columns: repeat(2, 1fr); } }
+.refactor-numbering { background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.3); border-radius: 10px; padding: 20px 24px; margin: 22px 0; }
+.refactor-numbering h4 { color: var(--amber); font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 8px; }
+.refactor-numbering p { color: #cfcfcf; }
+.refactor-arch { background: var(--panel-strong); border: 1px solid var(--border); border-radius: 10px; padding: 26px; margin: 16px 0 22px; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; line-height: 1.6; color: #cfcfcf; white-space: pre; overflow-x: auto; }
+.refactor-arch .pkg { color: var(--cyan); font-weight: 700; }
+.refactor-arch .repo { color: var(--purple); font-weight: 700; }
+.refactor-arch .note { color: #777; }
+.refactor-phase { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 22px 24px; margin: 14px 0; display: grid; grid-template-columns: 60px 1fr auto; gap: 22px; align-items: start; transition: border-color 0.15s; }
+.refactor-phase:hover { border-color: rgba(255,255,255,0.18); }
+.refactor-phase.done { border-left: 3px solid var(--green); }
+.refactor-phase.now { border-left: 3px solid var(--cyan); background: rgba(6,182,212,0.04); }
+.refactor-phase.next { border-left: 3px solid var(--amber); }
+.refactor-phase.parked { border-left: 3px solid var(--grey); opacity: 0.78; }
+.refactor-phase .pnum { font-family: 'JetBrains Mono', monospace; font-size: 2.2rem; font-weight: 700; color: #444; text-align: center; line-height: 1; }
+.refactor-phase.done .pnum { color: var(--green); }
+.refactor-phase.now .pnum { color: var(--cyan); }
+.refactor-phase.next .pnum { color: var(--amber); }
+.refactor-phase .body h3 { font-size: 1.15rem; font-weight: 600; color: #fff; margin-bottom: 6px; }
+.refactor-phase .body p { color: #bbb; margin-bottom: 10px; }
+.refactor-phase .body .meta { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: #777; margin-top: 10px; }
+.refactor-phase .body .meta a { color: var(--cyan); text-decoration: none; margin-right: 12px; }
+.refactor-phase .body .meta a:hover { text-decoration: underline; }
+.refactor-phase .status { font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; font-weight: 700; letter-spacing: 1px; padding: 4px 10px; border-radius: 100px; white-space: nowrap; }
+.refactor-phase.done .status { background: rgba(16,185,129,0.12); color: var(--green); border: 1px solid var(--green); }
+.refactor-phase.now .status { background: rgba(6,182,212,0.12); color: var(--cyan); border: 1px solid var(--cyan); }
+.refactor-phase.next .status { background: rgba(245,158,11,0.12); color: var(--amber); border: 1px solid var(--amber); }
+.refactor-phase.parked .status { background: rgba(107,114,128,0.12); color: var(--grey); border: 1px solid var(--grey); }
 @media (max-width: 720px) {
-  .progress-stats { grid-template-columns: repeat(2, 1fr); }
-  .phase { grid-template-columns: 40px 1fr; }
-  .phase .status { grid-column: 2; justify-self: start; margin-top: 6px; }
-  .phase .num { font-size: 1.6rem; }
-  .header h1 { font-size: 2rem; }
+  .refactor-phase { grid-template-columns: 40px 1fr; }
+  .refactor-phase .status { grid-column: 2; justify-self: start; margin-top: 6px; }
+  .refactor-phase .pnum { font-size: 1.6rem; }
 }
+.glossary-list { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 20px 24px; }
+.glossary-list dt { font-family: 'JetBrains Mono', monospace; font-weight: 600; color: var(--cyan); margin-top: 14px; }
+.glossary-list dt:first-child { margin-top: 0; }
+.glossary-list dd { color: #bbb; margin-top: 2px; margin-left: 8px; }
 </style>
 </head>
 <body>
 
-<header class="header">
-  <div class="badge">PLATFORM REFACTOR · v1.0</div>
-  <h1>NACA Platform — Where we are</h1>
-  <p class="tagline">Cutting <strong>Siti</strong> the WhatsApp interface apart from <strong>NACA</strong> the platform, one phase at a time. Plain progress; no jargon.</p>
-  <div class="stamp">Last updated: 2026-05-11</div>
-</header>
+<nav class="sidebar">
+  <div class="brand">NACA</div>
+  <div class="brand-sub">overview · auto-refresh 30s</div>
 
-<main class="container">
+  <div class="nav-section-label">↓ Foundations</div>
+  <a href="#what">What is NACA?</a>
+  <a href="#how">How it works</a>
+  <a href="#brain">🧠 neo-brain</a>
 
-  <!-- Progress meter -->
-  <section class="progress-card">
-    <div class="progress-stats">
+  <div class="nav-section-label">↓ The Team</div>
+  <a href="#agents">Agents (live)</a>
+  <a href="#agentflow">🗂️ Agent Flow</a>
+  <a href="#fleet">Hardware fleet</a>
+
+  <div class="nav-section-label">↓ Operations</div>
+  <a href="#flow">Data flow</a>
+  <a href="#app">NACA app</a>
+  <a href="#load">Where the load is</a>
+
+  <div class="nav-section-label">↓ Progress</div>
+  <a href="#milestones">Milestones</a>
+  <a href="#revamp">🩺 May 2026 revamp</a>
+  <a href="#monitoring">Monitoring</a>
+
+  <div class="nav-section-label">↓ Refactor v1</div>
+  <a href="#refactor">Platform refactor</a>
+  <a href="#glossary">Glossary</a>
+
+  <div class="live-pill-mini" id="livePillMini"><span id="livePillMiniText">connecting…</span></div>
+</nav>
+
+<div class="header">
+  <div class="badge">● live · auto-refresh 30s · platform refactor v1 · 100%</div>
+  <h1>NACA</h1>
+  <div class="tagline">
+    <strong>Neo's Agentic Centre Applications</strong> — a personal AI-agent fleet running across Macs, VPSes, an office NAS, and a home Threadripper, coordinated by one neural memory and one operator (Neo). Operator overview above; platform-refactor engineering progress at the <a href="#refactor" style="color: var(--cyan);">bottom of this page</a>.
+  </div>
+  <div class="live-pill" id="livePill"><span class="dot"></span><span id="livePillText">connecting…</span></div>
+</div>
+
+<div class="container">
+
+  <!-- WHAT IS NACA? -->
+  <div class="section" id="what">
+    <h2>What is NACA, in one paragraph?</h2>
+    <p>The simplest framing.</p>
+  </div>
+  <div class="callout">
+    <strong>NACA = Neo's Agentic Centre Applications</strong> — Neo's personal agentic command centre.
+    Eight specialist AI agents run 24/7 — one watches WhatsApp (Siti), one writes code (dev-agent), one reviews PRs (reviewer), one watches the fleet (supervisor), and so on. They coordinate through a shared memory database (<strong>neo-brain</strong>) and report up to Neo via WhatsApp. Neo approves big decisions ("merge this PR", "post this to LinkedIn") with a one-word reply, and the fleet handles the rest.
+    <br/><br/>
+    <em>Built as a personal project. The end-state is a native app on Neo's phone (Flutter, currently in early build) — if it ever gets productised for a company, the whole template just gets cloned.</em>
+  </div>
+
+  <!-- HOW NACA WORKS -->
+  <div class="section" id="how">
+    <h2>How NACA works · the operator stack</h2>
+    <p>Four layers. Each one has a clear job. Together they form the loop that turns a single human into an effective fleet conductor.</p>
+  </div>
+  <div class="grid grid-2">
+    <div class="layer-card">
+      <span class="layer-num">LAYER 1 · OPERATOR</span>
+      <h3>👤 Neo + Claude Code (this machine)</h3>
+      <p class="lead">Neo's MacBook Pro running <strong>Claude Code CLI</strong> in the terminal. Loads a global <code>~/.claude/CLAUDE.md</code> with persistent rules, plus a per-conversation auto-memory at <code>MEMORY.md</code>. Neo types a goal; Claude Code plans, calls tools, writes code, opens PRs.</p>
+      <ul>
+        <li>Reads <code>MEMORY.md</code> automatically every session</li>
+        <li>Spawns sub-agents and remote sessions when needed</li>
+        <li>SSHes into Siti VPS / CLAW / NAS via Tailscale</li>
+        <li>Pushes to GitHub → Netlify auto-deploys</li>
+      </ul>
+    </div>
+
+    <div class="layer-card" style="border-left: 3px solid var(--cyan);">
+      <span class="layer-num">LAYER 2 · TOOLKIT</span>
+      <h3>🧰 CTK · claude-tools-kit</h3>
+      <p class="lead">A shared repo at <code>~/Projects/claude-tools-kit</code> that holds every script, monitor, and helper used across operators and agents. Single source of truth — change a tool here and every machine picks it up.</p>
+      <ul>
+        <li><strong>tools/</strong> — supervisor-agent, claw-command-worker, fleet-trend, save-memory, check-latest-activities</li>
+        <li><strong>packages/memory/</strong> — the <code>@todak/memory</code> SDK source</li>
+        <li><strong>enforcement/</strong> — CTK_ENFORCEMENT.md (rules every CC reads)</li>
+        <li><strong>scripts/</strong> — one-shots and migrations</li>
+      </ul>
+    </div>
+
+    <div class="layer-card" style="border-left: 3px solid var(--purple);">
+      <span class="layer-num">LAYER 3 · SDK</span>
+      <h3>🧠 @todak/memory · the neo-brain SDK</h3>
+      <p class="lead">JS/Python client for neo-brain. Every agent — and every Claude Code session — talks to memory through this, never raw SQL. Provides search, save, credentials vault, person resolution, scheduled actions.</p>
+      <div class="code">
+<span class="c">// JavaScript</span>
+<span class="k">import</span> { NeoBrain } <span class="k">from</span> <span class="s">"@todak/memory"</span>;
+<span class="k">const</span> nb = <span class="k">new</span> <span class="fn">NeoBrain</span>({ url, serviceRoleKey, agent: <span class="s">"my-agent"</span> });
+
+<span class="c">// Semantic search across 11K memories</span>
+<span class="k">const</span> hits = <span class="k">await</span> nb.<span class="fn">search</span>(<span class="s">"what did Lan say about Digitech?"</span>);
+
+<span class="c">// Save with auto-embedding</span>
+<span class="k">await</span> nb.<span class="fn">save</span>(<span class="s">"PR #9 merged + deployed"</span>, {
+  category: <span class="s">"deploy"</span>, importance: 6, visibility: <span class="s">"private"</span>
+});
+
+<span class="c">// Vault lookup (no API key in prompts)</span>
+<span class="k">const</span> apiKey = <span class="k">await</span> nb.<span class="fn">getCredentialValue</span>(<span class="s">"netlify"</span>);</div>
+    </div>
+
+    <div class="layer-card" style="border-left: 3px solid var(--green);">
+      <span class="layer-num">LAYER 4 · AGENTS</span>
+      <h3>🤖 The specialists</h3>
+      <p class="lead">Nine always-on agents you talk to most + 12 specialty/infrastructure agents that support them. All registered in <code>agent_registry</code>, all polling the shared <code>agent_commands</code> queue in neo-brain.</p>
+      <p style="margin: 8px 0; color: #888; font-size: 0.85rem;"><em>Plain English: there are nine agents you'd describe to a friend, and another eleven that quietly keep the machine running underneath them.</em></p>
+      <p><strong>The visible nine</strong> (the ones whose names show up in your WhatsApp):</p>
+      <ul>
+        <li><strong>siti-router</strong> (<em>Siti v2</em>) — receives WhatsApp via siti-ingest, classifies into 1 of 8 intents, dispatches. 25 tools.</li>
+        <li><strong>planner</strong> — breaks fuzzy goals into agent tasks</li>
+        <li><strong>dev-agent</strong> — opens PRs (Claude Opus)</li>
+        <li><strong>reviewer</strong> — verdicts on PRs (Claude Sonnet)</li>
+        <li><strong>supervisor</strong> — fleet SRE on CLAW</li>
+        <li><strong>timekeeper</strong> — fires scheduled jobs at fire_at</li>
+        <li><strong>toolsmith</strong> — designs new tool specs</li>
+        <li><strong>poster-agent</strong> — social posting (skeleton)</li>
+        <li><strong>verifier-agent</strong> — confirms merged PRs actually deployed live</li>
+      </ul>
+      <p style="margin-top: 14px;"><strong>The supporting cast</strong> (silent infrastructure):</p>
+      <ul style="font-size: 0.92rem;">
+        <li><strong>pr-decision-dispatcher</strong> — turns your <em>"approve"</em> WhatsApp replies into <code>merge_pr</code> commands. Lives on CLAW launchd, intentionally off-VPS for blast-radius isolation.</li>
+        <li><strong>browser-agent</strong> · <strong>publisher-agent</strong> — social posting on Slave MBP (UI-driven via Playwright + Chromium, and API-driven via LinkedIn UGC etc.)</li>
+        <li><strong>neo-twin</strong> · <strong>twin-ingest</strong> · <strong>twin-autoreply</strong> — the digital-twin pipeline that auto-replies AS Neo on his primary number (Phase 6 shadow soak)</li>
+        <li><strong>naca-backend</strong> — Node.js REST API behind <code>naca.neotodak.com</code>, proxies to Siti's <code>:3800</code></li>
+        <li><strong>nas-ugreen</strong> · <strong>tr-home</strong> · <strong>backup-sync</strong> · <strong>claw-mac</strong> · <strong>neo-mbp</strong> — fleet-member heartbeat publishers (NAS, Threadripper, daily-3am rclone backup, CLAW job runner, Neo's MBP)</li>
+        <li><strong>daily-checkup</strong> — fleet-health detector. Once a day at 09:00 MYT, translates the day's FAIL/WARN findings into plain English via Sonnet and sends Neo one consolidated WhatsApp digest. Phase 1 is detector-only (since 2026-05-04) — auto-fix logic is deliberately deferred until soak shows which signals are real.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="callout green" style="margin-top: 20px;">
+    <strong>The control loop.</strong> Neo says something on WhatsApp → Siti reads it → if it's a real task, Siti dispatches an <code>agent_command</code> → the right specialist claims it → progress goes into neo-brain → Siti notifies Neo back on WhatsApp. For risky steps (merge a PR, post publicly), Siti pauses and asks Neo to reply <em>"approve"</em>. The whole thing runs whether Neo's at his desk or asleep.
+  </div>
+
+  <!-- DEVELOPMENT MILESTONE (TPC-style) -->
+  <div class="section" id="milestones">
+    <h2>Development Milestone</h2>
+    <p id="milestoneSubtitle">Loading…</p>
+  </div>
+
+  <!-- Overall progress card -->
+  <div class="progress-overview" id="progressOverview">
+    <div class="progress-overview-top">
+      <div class="progress-overview-left">
+        <div class="progress-label">Overall Progress</div>
+        <div class="progress-percent" id="overallPercent">--%</div>
+      </div>
+      <div class="progress-overview-right">
+        <div class="row"><span class="num" id="phasesDoneNum">--</span> of <span class="num" id="phasesTotalNum">--</span> phases</div>
+        <div class="row"><span class="num" id="itemsDoneNum">--</span> of <span class="num" id="itemsTotalNum">--</span> items</div>
+      </div>
+    </div>
+    <div class="progress-bar-large"><div class="fill" id="overallFill" style="width: 0"></div></div>
+    <div class="phase-stepper" id="phaseStepper"></div>
+  </div>
+
+  <!-- Per-phase cards rendered here -->
+  <div id="milestoneList"></div>
+
+  <!-- LIVE AGENT ROSTER -->
+  <div class="section" id="agents">
+    <h2>The agents · live heartbeat</h2>
+    <p>Each agent reports a heartbeat every 60s. If a heartbeat goes stale, the supervisor escalates to WhatsApp. Status here is real, not a snapshot.</p>
+  </div>
+  <div class="agent-grid" id="agentGrid"></div>
+
+  <!-- AGENT FLOW — TPC-style departments + pipeline (REVAMP v1.0.0 · 2026-05-04 · refresh v1.1 · 2026-05-11) -->
+  <style>
+    .dept-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin: 18px 0 30px; }
+    .dept { background: rgba(255,255,255,0.02); border: 1px solid var(--grey); border-radius: 8px; padding: 14px; }
+    .dept-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+    .dept-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .dept-title { font-weight: 600; font-size: 1.0rem; }
+    .dept-count { color: #888; font-size: 0.82rem; margin-left: auto; }
+    .dept-llm    { border-color: var(--purple); }       .dept-llm    .dept-dot { background: var(--purple); }
+    .dept-svc    { border-color: var(--green); }        .dept-svc    .dept-dot { background: var(--green); }
+    .dept-mon    { border-color: var(--amber); }        .dept-mon    .dept-dot { background: var(--amber); }
+    .dept-back   { border-color: #ec4899; }             .dept-back   .dept-dot { background: #ec4899; }
+    .dept-phys   { border-color: #f43f5e; }             .dept-phys   .dept-dot { background: #f43f5e; }
+    .dept-infra  { border-color: var(--cyan); }         .dept-infra  .dept-dot { background: var(--cyan); }
+    .agent-card-mini { background: rgba(0,0,0,0.25); border-radius: 6px; padding: 10px 12px; margin-top: 8px; border-left: 3px solid transparent; }
+    .agent-name { font-weight: 600; font-size: 0.95rem; color: #f0f0f0; display: flex; align-items: center; gap: 6px; }
+    .agent-host { color: #888; font-size: 0.75rem; margin-top: 2px; }
+    .agent-role { color: #bbb; font-size: 0.82rem; margin: 4px 0; }
+    .agent-tools { color: #aaa; font-size: 0.78rem; font-family: 'JetBrains Mono', monospace; }
+    .agent-tools code { background: rgba(255,255,255,0.05); padding: 1px 5px; border-radius: 3px; font-size: 0.74rem; }
+    .pipeline-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; margin: 14px 0; }
+    .stage { background: rgba(255,255,255,0.03); border-radius: 6px; padding: 10px 12px; border-top: 3px solid; min-height: 130px; }
+    .stage-head { font-size: 0.72rem; color: #888; text-transform: uppercase; letter-spacing: 1px; }
+    .stage-name { font-weight: 600; font-size: 0.92rem; margin: 3px 0 8px; }
+    .stage-actor { font-size: 0.78rem; color: #ccc; padding: 4px 6px; background: rgba(255,255,255,0.03); border-radius: 4px; margin-bottom: 4px; display: flex; gap: 4px; align-items: center; }
+    .stage-actor code { font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; }
+  </style>
+
+  <div class="section" id="agentflow">
+    <h2>🗂️ Agent Flow · departments &amp; pipeline</h2>
+    <p>Inspired by Lan's TPC <a href="https://tpc.todak.io/manpower-flow" style="color:var(--cyan);">Manpower Flow</a>. Treats agents like staff: grouped by department (their type), each with a job description, host posting, and tool inventory. Below that, a pipeline view shows which agents act at each stage of the standard work flow.</p>
+    <p style="color: #888; font-size: 0.9rem;"><em>Plain English: instead of just listing agents alphabetically, this shows <strong>who works where</strong> and <strong>what each one does</strong>, like an org chart for AI. Then the pipeline shows <strong>how a job moves through the team</strong>.</em></p>
+  </div>
+
+  <h3 style="margin-top: 6px;">Departments &amp; Staff</h3>
+  <p style="font-size: 0.86rem; color: #aaa; margin-bottom: 6px;"><em>The cards below list <strong>agents that do work</strong> — software workers grouped by role. <strong>The physical machines they run on</strong> (Siti VPS, CLAW MBA, Slave MBP, NAS Ugreen, tr-home, Twin VPS, TDCC VPS, naca-pi, xiaozhi-dog, Flipper Zero, neo-mbp) live in the <a href="#fleet" style="color: var(--cyan);">Hardware fleet section below</a>. An agent's "host" line tells you which machine, but the org chart doesn't classify by hardware.</em></p>
+  <div class="dept-row">
+
+    <!-- LLM-DRIVEN -->
+    <div class="dept dept-llm">
+      <div class="dept-header"><span class="dept-dot"></span><span class="dept-title">🧠 LLM-Driven</span><span class="dept-count">6 agents</span></div>
+      <div class="agent-card-mini">
+        <div class="agent-name">siti-router <span style="color:#888;font-size:0.7rem;">· Chief of Staff (Siti v2)</span></div>
+        <div class="agent-host">Siti VPS · Gemini 2.5 Flash · 8 specialists: IGNORE · VERDICT · REMINDER · MEMORY_OP · GROUP_OP · TASK · MEDIA · CHAT</div>
+        <div class="agent-role">The Siti v2 rebuild — replaced the monolithic 'siti' agent (44 tools in one pile) with Router + 8 specialists. Receives WhatsApp via siti-ingest, classifies into one of 8 intents, dispatches to the right specialist. CHAT specialist owns the tool-using LLM loop.</div>
+        <div class="agent-tools"><strong>25 tools (CHAT-bound):</strong> Knowledge (5: lookup_resource · recall · time_now · search_person · get_person_facts) · Web (2: web_search · read_url v2 — TikTok/YouTube/Twitter/HTML) · Media (7: generate_image · generate_video · edit_image · resend_media · list_media · recognize_face · save_face) · Comms (1: make_call) · Workspace (8: calendar × 2 · gmail × 3 · drive × 3) · Ops (1: check_agent_status) · State (1: chat_thread_state)</div>
+        <div class="agent-tools" style="margin-top: 6px; color: #888;"><em>⛔ Old 'siti' monolith paused since 2026-05-05. siti-router (Siti v2) is the active brain.</em></div>
+      </div>
+      <div class="agent-card-mini">
+        <div class="agent-name">planner-agent <span style="color:#888;font-size:0.7rem;">· Architect</span></div>
+        <div class="agent-host">tr-home · Claude Sonnet 4.6 <em style="color:#888;">(moved from Siti VPS 2026-05-11 · Phase 8)</em></div>
+        <div class="agent-role">Decomposes fuzzy intents into agent_commands. Recalls similar past decompositions from memory.</div>
+        <div class="agent-tools"><strong>1 tool:</strong> <code>dispatch_command</code></div>
+      </div>
+      <div class="agent-card-mini">
+        <div class="agent-name">dev-agent <span style="color:#888;font-size:0.7rem;">· Engineer</span></div>
+        <div class="agent-host">tr-home · Claude Opus 4.6 <em style="color:#888;">(moved from Siti VPS 2026-05-11 · Phase 8)</em></div>
+        <div class="agent-role">Auto-fixes bugs, opens PRs, runs gh pr merge. Writes code in feature branches per WORKFLOW.md.</div>
+        <div class="agent-tools"><strong>4 tools:</strong> <code>read_file</code> · <code>write_file</code> · <code>run_command</code> · <code>list_files</code></div>
+      </div>
+      <div class="agent-card-mini">
+        <div class="agent-name">reviewer-agent <span style="color:#888;font-size:0.7rem;">· Second Opinion</span></div>
+        <div class="agent-host">tr-home · Claude Sonnet 4.6 <em style="color:#888;">(moved from Siti VPS 2026-05-11 · Phase 8)</em></div>
+        <div class="agent-role">Reads diffs, gives verdicts, posts technical review on GitHub + plain-English brief to Neo via Siti. Skips already-merged PRs (post-merge audit guard).</div>
+        <div class="agent-tools"><strong>4 tools (read-only):</strong> <code>read_file</code> · <code>read_diff</code> · <code>list_changed_files</code> · <code>run_readonly</code></div>
+      </div>
+      <div class="agent-card-mini">
+        <div class="agent-name">toolsmith-agent <span style="color:#888;font-size:0.7rem;">· Tool Designer</span></div>
+        <div class="agent-host">NAS Ugreen · Docker (migrated 2026-05-04) · Claude Sonnet</div>
+        <div class="agent-role">Designs new tool specs when Siti hits a capability gap (logged via siti_capability_gap intents). Doesn't ship code itself — produces specs that planner→dev-agent can implement.</div>
+        <div class="agent-tools"><strong>0 tools:</strong> reasoning + spec generation only</div>
+      </div>
+      <div class="agent-card-mini">
+        <div class="agent-name">neo-twin <span style="color:#888;font-size:0.7rem;">· Twin Auto-Reply</span></div>
+        <div class="agent-host">Twin VPS · two-tier (Haiku → Qwen)</div>
+        <div class="agent-role">Auto-replies AS Neo on his primary WhatsApp number. Phase 6 shadow soak — drafts go to neo-brain for Neo's review before live deployment.</div>
+        <div class="agent-tools"><strong>0 tools:</strong> reply generation only (read-only context from neo-brain memories)</div>
+      </div>
+    </div>
+
+    <!-- SERVICE -->
+    <div class="dept dept-svc">
+      <div class="dept-header"><span class="dept-dot"></span><span class="dept-title">⚙️ Service</span><span class="dept-count">11 agents</span></div>
+      <div class="agent-card-mini">
+        <div class="agent-name">siti-ingest <span style="color:#888;font-size:0.7rem;">· WhatsApp Bridge</span></div>
+        <div class="agent-host">Siti VPS · Node + wacli (Go binary)</div>
+        <div class="agent-role">The mouth and ears of siti-router. Listens to Siti's WhatsApp account via wacli (whatsmeow-based), normalises every inbound message into a canonical envelope, writes to <code>memories</code> (siti-router polls there). Outbound: exposes /send · /send_image · /send_audio · /send_video · /send_document on :3501 — used by siti-router and the outbound-bridge.</div>
+        <div class="agent-tools"><strong>Pipeline:</strong> wacli WS → envelope normalise → neo-brain.memories (siti-router polls) · /send HTTP API for outbound</div>
+      </div>
+      <div class="agent-card-mini">
+        <div class="agent-name">deployer-agent <span style="color:#888;font-size:0.7rem;">· Auto-Deploy</span></div>
+        <div class="agent-host">Siti VPS · Node (since 2026-05-10)</div>
+        <div class="agent-role">Closes the "code-merged ≠ deploy-live" gap. Polls <code>agent_commands(to_agent='dev-agent', command='merge_pr', status='done')</code> every 30s. For any matching repo in SERVICE_CONFIGS, runs <code>git pull + pm2 restart</code> locally. Reports back via outbound-bridge with "━━ deployer ━━" attribution. Idempotent via deploy_log memory markers.</div>
+        <div class="agent-tools"><strong>Pipeline:</strong> agent_commands(dev-agent/merge_pr/done) → match SERVICE_CONFIGS → git pull → pm2 restart → notify Neo via Siti</div>
+      </div>
+      <div class="agent-card-mini">
+        <div class="agent-name">timekeeper <span style="color:#888;font-size:0.7rem;">· Cron Runner</span></div>
+        <div class="agent-host">NAS Ugreen · Docker (migrated 2026-05-04)</div>
+        <div class="agent-role">Polls scheduled_actions every 30s, atomically claims due rows via claim_due_actions RPC (SELECT FOR UPDATE SKIP LOCKED), executes them, logs to result. Handles RRULE recurring patterns. Multi-instance safe.</div>
+        <div class="agent-tools"><strong>RPC:</strong> <code>claim_due_actions</code> · supports <code>agent_command</code>, <code>send_whatsapp</code>, <code>send_email</code> action_kinds. Tracks <code>dead_letter</code> count.</div>
+      </div>
+      <div class="agent-card-mini">
+        <div class="agent-name">poster-agent <span style="color:#888;font-size:0.7rem;">· Social Router</span></div>
+        <div class="agent-host">NAS Ugreen · Docker (migrated 2026-05-04) · Node service</div>
+        <div class="agent-role">Routes social-media posts via scheduled_actions + agent_commands. Bridges content_drafts approval flow to platform-specific publishers (browser-agent / publisher-agent on Slave MBP).</div>
+        <div class="agent-tools"><strong>Targets:</strong> TikTok · Instagram · LinkedIn · Threads · Facebook</div>
+      </div>
+      <div class="agent-card-mini">
+        <div class="agent-name">browser-agent <span style="color:#888;font-size:0.7rem;">· UI Publisher</span></div>
+        <div class="agent-host">Slave MBP · Playwright + Chromium</div>
+        <div class="agent-role">UI-driven posting for platforms with auth-walls or no API (TikTok, Instagram, Threads). Also URL fetcher fallback when Siti needs to read a page that blocks Jina. YouTube transcript via yt-dlp.</div>
+        <div class="agent-tools"><strong>Capabilities:</strong> Chromium with per-platform login profiles · queue listener + HTTP server (Pattern C) · session decay detection (planned)</div>
+      </div>
+      <div class="agent-card-mini">
+        <div class="agent-name">publisher-agent <span style="color:#888;font-size:0.7rem;">· API Publisher</span></div>
+        <div class="agent-host">Slave MBP · Node service</div>
+        <div class="agent-role">API-driven posting where the platform offers an API (LinkedIn UGC, Facebook Pages, X/Twitter when restored). Companion to browser-agent — pure API path, no Chrome.</div>
+        <div class="agent-tools"><strong>APIs:</strong> LinkedIn UGC · FB Pages · (more as access is granted)</div>
+      </div>
+      <div class="agent-card-mini">
+        <div class="agent-name">twin-ingest <span style="color:#888;font-size:0.7rem;">· Memory Pipeline</span></div>
+        <div class="agent-host">Twin VPS · Node service</div>
+        <div class="agent-role">Listens to primary phone WhatsApp, transcribes voice notes via OpenAI Whisper, embeds via Gemini, writes to neo-brain.memories. Phase 5 hardening fixed an embedding gap (3,140 rows backfilled).</div>
+        <div class="agent-tools"><strong>Pipeline:</strong> WhatsApp → Whisper ASR → Gemini embedding → memories table</div>
+      </div>
+      <div class="agent-card-mini">
+        <div class="agent-name">twin-autoreply <span style="color:#888;font-size:0.7rem;">· Haiku Replier</span></div>
+        <div class="agent-host">CTK pm2 · Claude Haiku</div>
+        <div class="agent-role">Polls wacli every 45s, generates auto-replies via Haiku for whitelisted contacts. Companion to neo-twin's two-tier pipeline (Haiku is Tier 1).</div>
+        <div class="agent-tools"><strong>Pipeline:</strong> wacli poll → contact whitelist check → Haiku reply → wacli send</div>
+      </div>
+      <div class="agent-card-mini">
+        <div class="agent-name">plaud-pipeline <span style="color:#888;font-size:0.7rem;">· Voice → Memory</span></div>
+        <div class="agent-host">CLAW launchd · port 3904</div>
+        <div class="agent-role">Plaud voice-note recordings → n8n webhook → CLAW ingest → GPT summarization → operator approval → pgVector memories. End-to-end voice-to-knowledge.</div>
+        <div class="agent-tools"><strong>Pipeline:</strong> Plaud → n8n → CLAW:3904 → GPT-5 → memories (with operator approval gate)</div>
+      </div>
+      <div class="agent-card-mini">
+        <div class="agent-name">naca-backend <span style="color:#888;font-size:0.7rem;">· REST API</span></div>
+        <div class="agent-host">Siti VPS · Node + Express</div>
+        <div class="agent-role">REST API behind <code>naca.neotodak.com</code>. Hosts the github webhook handler (Phase 4 pipeline), GAM/Workspace endpoints, Siti proxy (HTTPS + PIN injection so iOS app can talk to Siti). NACA app's only backend.</div>
+        <div class="agent-tools"><strong>Endpoints:</strong> /api/github-webhook · /api/siti/* (proxy) · /api/gam/* (Workspace) · /api/agents/insights · /api/health</div>
+      </div>
+      <div class="agent-card-mini">
+        <div class="agent-name">backup-sync <span style="color:#888;font-size:0.7rem;">· Daily NAS rsync</span></div>
+        <div class="agent-host">CLAW launchd · daily 3am MYT (cadence-aware)</div>
+        <div class="agent-role">Scheduled job: rclone sync from CLAW + neo-brain snapshot → NAS. Runs once per day (~67s, errors=0). Health-check tool classifies as "scheduled-ok" so the once-per-day cadence doesn't trigger false-offline alarms.</div>
+        <div class="agent-tools"><strong>Steps:</strong> neo-brain-snapshot · claw-rsync · vps-rsync · retention · heartbeat</div>
+      </div>
+    </div>
+
+    <!-- MONITOR -->
+    <div class="dept dept-mon">
+      <div class="dept-header"><span class="dept-dot"></span><span class="dept-title">🛡️ Monitor</span><span class="dept-count">4 agents</span></div>
+      <div class="agent-card-mini">
+        <div class="agent-name">supervisor <span style="color:#888;font-size:0.7rem;">· Fleet SRE</span></div>
+        <div class="agent-host">CLAW launchd · Node service</div>
+        <div class="agent-role">Cross-fleet monitoring: stuck-command detection (>10min in pending/claimed/running), cross-session drift (RESTART_BURST + PARALLEL_INFRA + VERSION_DRIFT), credential leak watch (daily gh search across broneotodak/), VPS git-drift (30-min cron). Escalates via Siti.</div>
+        <div class="agent-tools"><strong>Monitors:</strong> stuck-command · drift · credential-leak · git-drift · NAS health</div>
+      </div>
+      <div class="agent-card-mini">
+        <div class="agent-name">verifier-agent <span style="color:#888;font-size:0.7rem;">· Deploy Confirmer</span></div>
+        <div class="agent-host">NAS Ugreen · Docker (migrated 2026-05-04) · Node service</div>
+        <div class="agent-role">After dev-agent merges a PR, confirms the code actually deployed live (Netlify, Hetzner, etc.). Pings Siti with stuck-PR alerts at 16-min mark. Race fix + URL fix shipped 2026-04-29.</div>
+        <div class="agent-tools"><strong>Verifies:</strong> Netlify deploy URL · pm2 restart age · agent_heartbeat freshness post-deploy</div>
+      </div>
+      <div class="agent-card-mini">
+        <div class="agent-name">pr-decision-dispatcher <span style="color:#888;font-size:0.7rem;">· Approval Bridge</span></div>
+        <div class="agent-host">CLAW launchd · 30s cron</div>
+        <div class="agent-role">Watches Neo's WhatsApp replies + pr-awaiting-decision memories. When Neo replies <em>"approve"</em>, writes a merge_pr command to dev-agent. Idempotent via pr-decision-recorded memory. Off-VPS for blast-radius isolation.</div>
+        <div class="agent-tools"><strong>RPCs:</strong> findAwaiting · matchVerdict · recordDecision · dispatches <code>merge_pr</code> / <code>close_pr</code> / writes operator-review-pending memory</div>
+      </div>
+      <div class="agent-card-mini">
+        <div class="agent-name">daily-checkup <span style="color:#888;font-size:0.7rem;">· Fleet Digest</span></div>
+        <div class="agent-host">NAS Ugreen · Docker (since 2026-05-04) · Claude Sonnet 4.6</div>
+        <div class="agent-role">Once a day at 09:00 MYT scans the fleet (heartbeats, stuck commands, orphan PR decisions, memory activity, registry health), translates FAIL+WARN findings to plain English via Sonnet, sends Neo one consolidated WhatsApp digest via Siti. Phase 1 is detector-only — no auto-fix; will get a fix-recipe catalog + operator-approve flow in Phase 2 once soak data shows which signals are real. Honors <code>agent_registry.meta.suppress_alerts</code> so manually-toggled-off agents don't pollute the digest.</div>
+        <div class="agent-tools"><strong>Reads:</strong> agent_heartbeats · agent_commands · agent_registry · memories · project_registry. <strong>Writes:</strong> 1 agent_command/day to siti · 1 daily_checkup_run memory/day · heartbeat every 60s.</div>
+      </div>
+    </div>
+
+    <!-- EDGE AGENTS — software running on dedicated hardware -->
+    <div class="dept dept-phys">
+      <div class="dept-header"><span class="dept-dot"></span><span class="dept-title">📡 Edge Agents</span><span class="dept-count">2 agents</span></div>
+      <div class="agent-card-mini">
+        <div class="agent-name">xiaozhi-dog <span style="color:#888;font-size:0.7rem;">· Voice Siti</span></div>
+        <div class="agent-host">ESP32-S3 light_ai unit · Home WiFi</div>
+        <div class="agent-role">Wake-word voice device on Neo's desk. ASR via Whisper, TTS via ElevenLabs (AFIFAH voice). Speaks to Siti via WebSocket on Siti VPS. Phase B paused; full state in memory <code>b1b9db80</code>.</div>
+        <div class="agent-tools"><strong>Pipeline:</strong> wake → WebSocket → Siti VPS → Whisper ASR (~1.5s) → Siti decides → ElevenLabs TTS (~1.3s) → speaker</div>
+      </div>
+      <div class="agent-card-mini">
+        <div class="agent-name">naca-pi <span style="color:#888;font-size:0.7rem;">· Security Recon</span></div>
+        <div class="agent-host">Raspberry Pi 4 8GB · tailnet 100.114.3.1</div>
+        <div class="agent-role">Pi 4 running <code>flipperneo</code>. Controls a Flipper Zero via USB serial. 8 Siti tools route here: <code>scan_wifi</code> · <code>scan_network</code> · <code>ble_scan</code> · <code>security_recon</code> · <code>port_scan</code> · <code>flipper_command</code> · <code>rogue_ap_check</code> · <code>wifi_pentest</code>.</div>
+        <div class="agent-tools"><strong>Hardware:</strong> Pi 4 + Flipper Zero peripheral (Sub-GHz · NFC · RFID · IR · WiFi · BadUSB)</div>
+      </div>
+    </div>
+
+    <!-- OPERATOR STATION -->
+    <div class="dept" style="border-color: #94a3b8;">
+      <div class="dept-header" style="border-bottom-color: rgba(255,255,255,0.06);"><span class="dept-dot" style="background:#94a3b8;"></span><span class="dept-title">👤 Operator Station</span><span class="dept-count">1 station</span></div>
+      <div class="agent-card-mini">
+        <div class="agent-name">neo-mbp <span style="color:#888;font-size:0.7rem;">· Operator</span></div>
+        <div class="agent-host">Neo's MacBook Pro · tailnet 100.95.222.11</div>
+        <div class="agent-role">The human's station — runs Claude Code, edits code, pastes focus prompts, drives the rest of the fleet. Reports presence + battery so other agents can answer "is Neo at his desk?" Not an autonomous agent; the operator.</div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="callout amber" style="margin-top: 12px;"><strong>Heartbeat-only fleet members</strong> (not in Departments because they don't run fleet jobs — they <em>host</em> agents): <code>nas-ugreen</code>, <code>tr-home</code>, <code>claw-mac</code>. They have <code>agent_registry</code> rows for fleet-visibility (so the supervisor can confirm the host machine is alive) but their actual workload is documented in the <a href="#fleet" style="color: var(--cyan);">Hardware fleet section below</a>.</div>
+
+  <h3 style="margin-top: 28px;">Pipeline · Stages of work</h3>
+  <p style="color: #888; font-size: 0.9rem;"><em>How a fix or feature moves through the team. Each stage's "actor" is the agent (or human) who does the work; arrows downstream are implicit.</em></p>
+  <div class="pipeline-row">
+    <div class="stage" style="border-color: var(--cyan);">
+      <div class="stage-head">Stage 1</div>
+      <div class="stage-name">📥 Input</div>
+      <div class="stage-actor">📱 Neo (WhatsApp / NACA app)</div>
+      <div class="stage-actor">🐕 xiaozhi-dog (voice)</div>
+      <div class="stage-actor">🎙️ Plaud (voice notes)</div>
+      <div class="stage-actor">⚡ github-actions (webhook)</div>
+      <div class="stage-actor">⏰ scheduled cron</div>
+    </div>
+    <div class="stage" style="border-color: var(--purple);">
+      <div class="stage-head">Stage 2</div>
+      <div class="stage-name">🎯 Triage</div>
+      <div class="stage-actor"><code>siti-router</code> classifies into 1 of 8 intents (IGNORE/VERDICT/REMINDER/MEMORY_OP/GROUP_OP/TASK/MEDIA/CHAT) via rules + LLM tiebreak</div>
+    </div>
+    <div class="stage" style="border-color: var(--purple);">
+      <div class="stage-head">Stage 3</div>
+      <div class="stage-name">🧩 Plan</div>
+      <div class="stage-actor"><code>planner-agent</code> decomposes fuzzy intent into agent_commands</div>
+      <div class="stage-actor"><code>toolsmith-agent</code> if a capability gap is hit</div>
+    </div>
+    <div class="stage" style="border-color: var(--purple);">
+      <div class="stage-head">Stage 4</div>
+      <div class="stage-name">🔧 Build</div>
+      <div class="stage-actor"><code>dev-agent</code> writes code, opens PR (Claude Opus)</div>
+    </div>
+    <div class="stage" style="border-color: var(--purple);">
+      <div class="stage-head">Stage 5</div>
+      <div class="stage-name">🔍 Review</div>
+      <div class="stage-actor"><code>reviewer-agent</code> verdicts + writes pr-awaiting-decision memory + dispatches Siti notification</div>
+    </div>
+    <div class="stage" style="border-color: var(--green);">
+      <div class="stage-head">Stage 6</div>
+      <div class="stage-name">✅ Decide</div>
+      <div class="stage-actor">📱 Neo replies <em>approve</em> / <em>reject</em> / <em>hold</em> on WhatsApp</div>
+    </div>
+    <div class="stage" style="border-color: var(--amber);">
+      <div class="stage-head">Stage 7</div>
+      <div class="stage-name">🤝 Dispatch</div>
+      <div class="stage-actor"><code>pr-decision-dispatcher</code> writes <code>merge_pr</code> / <code>close_pr</code> command</div>
+    </div>
+    <div class="stage" style="border-color: var(--purple);">
+      <div class="stage-head">Stage 8</div>
+      <div class="stage-name">🚀 Deploy</div>
+      <div class="stage-actor"><code>dev-agent</code> runs <code>gh pr merge</code></div>
+      <div class="stage-actor">🚀 CI/CD (Netlify auto-deploy on push to main)</div>
+    </div>
+    <div class="stage" style="border-color: var(--amber);">
+      <div class="stage-head">Stage 9</div>
+      <div class="stage-name">🛡️ Verify</div>
+      <div class="stage-actor"><code>verifier-agent</code> confirms deployed live</div>
+      <div class="stage-actor"><code>supervisor</code> watches for stuck/drift</div>
+    </div>
+    <div class="stage" style="border-color: var(--green);">
+      <div class="stage-head">Stage 10</div>
+      <div class="stage-name">⏰ Schedule</div>
+      <div class="stage-actor"><code>timekeeper</code> fires recurring or future-dated jobs from <code>scheduled_actions</code></div>
+    </div>
+  </div>
+
+  <div class="callout green" style="margin-top: 14px;"><strong>Key flows that DON'T fit this 10-stage pipeline:</strong> social-media posting (browser-agent / publisher-agent on Slave MBP) has its own approval-driven flow via content_drafts. Twin auto-reply (neo-twin) runs as a separate Phase 6 pipeline against Neo's primary number. Plaud voice-notes (CLAW) feed memories directly. The pipeline above is the <em>code-change</em> flow specifically — the highest-traffic loop.</div>
+
+  <div class="callout amber"><strong>Read this like an org chart:</strong> if you're wondering "who handles X?", find the department; if you're wondering "what happens after Y?", trace the pipeline. If an agent isn't shown here it's either archived (person-sync, musclehub) or hasn't been built yet (placeholder roles in Phase 6+).</div>
+
+  <!-- HARDWARE FLEET -->
+  <div class="section" id="fleet">
+    <h2>The fleet · hardware</h2>
+    <p>7 active machines + 1 voice device (+ Neo's operator MBP), 3 physical locations, all on a private Tailscale mesh. The xiaozhi dog is the first physical NACA device — proof that any hardware with a mic + speaker can become a Siti node. tr-home is the Threadripper LLM rig at Neo's home (recently activated) — local fine-tuning + Ollama serving + the FCC wall display.</p>
+  </div>
+  <div class="diagram">
+    <div class="mermaid">
+graph TB
+    classDef vps fill:#1e293b,stroke:#06b6d4,color:#e0e0e0
+    classDef mac fill:#1e293b,stroke:#10b981,color:#e0e0e0
+    classDef nas fill:#1e293b,stroke:#f59e0b,color:#e0e0e0
+    classDef brain fill:#0c1e3e,stroke:#8b5cf6,color:#e0e0e0
+    classDef client fill:#3a1d4a,stroke:#8b5cf6,color:#e0e0e0
+    classDef device fill:#1e293b,stroke:#ec4899,color:#e0e0e0
+
+    NEO[📱 Neo's iPhone<br/>WhatsApp + NACA app]:::client
+    DOG[🐕 Xiaozhi Dog<br/>ESP32-S3 · voice I/O<br/>Siti inside]:::device
+
+    subgraph CLOUD[" ☁️ Hetzner Cloud "]
+        SITI_VPS[<b>Siti VPS</b><br/>178.156.241.204<br/>4 vCPU · 8GB · 150GB<br/>5 active PM2 agents + naca-backend + naca-mcp-bridge-http<br/>siti-router · siti-ingest · deployer · face-service]:::vps
+        TWIN_VPS[<b>Neo-Twin VPS</b><br/>5.161.126.222<br/>twin-ingest only]:::vps
+    end
+
+    subgraph SG[" 🇸🇬 Singapore "]
+        TDCC[<b>TDCC VPS</b><br/>5.223.80.244<br/>GAM7 Workspace admin]:::vps
+    end
+
+    subgraph HOME[" 🏠 Home network · Cyberjaya "]
+        CLAW[<b>CLAW</b> · MBA M4 · 24GB<br/>100.93.159.1<br/>supervisor + claw-command-worker<br/>Studio role — media gen]:::mac
+        SLAVE[<b>Slave MBP</b> · M1 Pro · 16GB<br/>100.93.211.9<br/>publisher-agent + browser-agent<br/>Publisher — API + Chromium]:::mac
+        TRHOME[<b>tr-home</b> · Threadripper 7970X · 64GB<br/>RX 7900 XTX · 24GB VRAM · ROCm<br/>100.126.89.7<br/>reviewer · planner · dev (Phase 8)<br/>+ Ollama qwen2.5:32b + FCC sidecar + Phase 6 rig]:::mac
+        MBP[<b>Neo's MBP</b><br/>operator · Claude Code]:::client
+        DOG
+        RPI[🥧 <b>naca-pi</b><br/>RPi 4 · 8GB · ARM64<br/>100.114.3.1]:::device
+        FLIP[🐬 <b>Flipper Zero</b><br/>Mflip · Unleashed<br/>Sub-GHz·NFC·RFID·IR·WiFi]:::device
+    end
+
+    subgraph OFFICE[" 🏢 Todak Studios · Kenwingston "]
+        NAS[<b>Ugreen NAS</b><br/>Pentium Gold · 22TB RAID5<br/>Docker containers]:::nas
+    end
+
+    NB[(<b>neo-brain</b><br/>Supabase pgVector<br/>shared memory · all agents read/write)]:::brain
+
+    NEO ==>|WhatsApp| SITI_VPS
+    NEO ==>|HTTPS| SITI_VPS
+    SITI_VPS <-->|read/write| NB
+    TWIN_VPS <-->|read/write| NB
+    CLAW <-->|read/write| NB
+    SLAVE <-->|read/write| NB
+    NAS <-->|monitoring| NB
+    SITI_VPS -.SSH.-> TDCC
+    SITI_VPS -.SSH.-> CLAW
+    SITI_VPS -.HTTP 3199.-> SLAVE
+    NAS -.Tailscale.-> SITI_VPS
+    NAS -.Tailscale.-> CLAW
+    NAS -.Tailscale.-> SLAVE
+    TRHOME <-->|read/write| NB
+    TRHOME -.Tailscale.-> CLAW
+    MBP -.Tailscale.-> CLAW
+    MBP -.Tailscale.-> SLAVE
+    MBP -.Tailscale.-> TRHOME
+    MBP -.SDK.-> NB
+    DOG ==>|voice WebSocket| SITI_VPS
+    RPI -.Tailscale.-> NB
+    FLIP ---|USB serial| RPI
+
+    linkStyle default stroke:#ef4444,stroke-width:2.5px,color:#fca5a5
+    </div>
+  </div>
+
+  <div class="grid grid-3">
+    <div class="card cyan">
+      <h3>☁️ Siti VPS · Hetzner</h3>
+      <div class="role">The brain stem (network-facing only — post Phase 8)</div>
+      <div class="specs">CPX31 · 4 vCPU · 8GB · Ubuntu 24<br/>178.156.241.204</div>
+      <div class="runs">
+        <strong>5 active PM2 agents + naca-backend + naca-mcp-bridge-http (refresh 2026-05-11):</strong>
+        <ul>
+          <li>siti-router — Siti v2 brain (25 tools, 8 specialists)</li>
+          <li>siti-ingest — WhatsApp bridge (wacli + /send HTTP API)</li>
+          <li>deployer-agent — auto-deploy after merge (SSH-deploys local Hetzner pm2; host-coupled here)</li>
+          <li>face-service — InsightFace recognition (Python)</li>
+          <li>naca-backend — NACA app API + GitHub webhooks</li>
+          <li>naca-mcp-bridge-http — Phase 7b, tailnet MCP bridge (<code>100.79.179.67:3906</code>)</li>
+        </ul>
+        <span class="badge live">poster · timekeeper · toolsmith · verifier moved to NAS Ugreen (2026-05-04). reviewer · planner · dev moved to tr-home (Phase 8, 2026-05-11).</span>
+        <div style="margin-top: 10px; font-size: 0.78rem; color: #888;"><em>⛔ Legacy 'siti' monolith (pm2 #8) intentionally stopped since 2026-05-05 — siti-router supersedes it. Old reviewer/planner/dev pm2 entries left stopped for 24h rollback safety net.</em></div>
+      </div>
+    </div>
+
+    <div class="card green">
+      <h3>🎬 CLAW · "The Studio"</h3>
+      <div class="role">Media generation node — Imel's MBA</div>
+      <div class="specs">Apple M4 · 10 cores · 24GB RAM<br/>100.93.159.1 (Tailscale)</div>
+      <div class="runs">
+        <strong>Specialist role: media gen via cloud APIs:</strong>
+        <ul>
+          <li>Higgsfield · OpenArt · Gemini Imagen · Veo</li>
+          <li>LTX Studio · Kling.ai (video gen)</li>
+          <li>Saves bytes to NAS MinIO (neo-media bucket)</li>
+          <li>Writes content_drafts → Siti DMs Neo for approval</li>
+        </ul>
+        <strong>Fleet services kept here:</strong>
+        <ul>
+          <li>supervisor-agent — fleet SRE (CLAW launchd)</li>
+          <li>claw-command-worker — runs media-gen jobs</li>
+          <li>claw-bridge — MCP SSE :3899</li>
+          <li>backup-sync, forex-signal-ingest, plaud-ingest</li>
+        </ul>
+        <span class="badge live">Ollama dropped — cloud APIs cover all LLM work</span>
+      </div>
+    </div>
+
+    <div class="card amber">
+      <h3>📦 Ugreen NAS</h3>
+      <div class="role">Data fortress + relocated agents · Todak Studios office (Kenwingston)</div>
+      <div class="specs">6-core Pentium Gold · 23GB RAM<br/>22TB RAID5 · 100.85.18.97 (Tailscale)</div>
+      <div class="runs">
+        <strong>Docker containers:</strong>
+        <ul>
+          <li>MinIO — S3-compatible storage</li>
+          <li>Gitea — git mirror</li>
+          <li>Uptime Kuma — fleet monitor</li>
+          <li>n8n — workflow automation</li>
+          <li>Tailscale</li>
+        </ul>
+        <strong>Agents (5 NACA Docker containers — 4 relocated 2026-05-04 + daily-checkup born here):</strong>
+        <ul>
+          <li>poster-agent — content scheduling</li>
+          <li>timekeeper-agent — fires scheduled jobs</li>
+          <li>toolsmith-agent — fills capability gaps</li>
+          <li>verifier-agent — fleet trust monitor</li>
+          <li>daily-checkup — daily 09:00 MYT fleet-health digest (since 2026-05-04, Phase 1 detector only)</li>
+        </ul>
+        <span class="badge live">6 agents on fleet (incl. nas-ugreen heartbeat)</span>
+      </div>
+    </div>
+
+    <div class="card cyan">
+      <h3>☁️ TDCC VPS · Singapore</h3>
+      <div class="role">Workspace admin</div>
+      <div class="specs">Hetzner Singapore · 5.223.80.244</div>
+      <div class="runs">
+        <strong>GAM7 — Google Apps Manager:</strong>
+        <ul>
+          <li>434 Workspace users</li>
+          <li>23 Org Units</li>
+          <li>257 Shared Drives</li>
+          <li>Domain-wide delegation</li>
+        </ul>
+        <span class="badge live">read-only via NACA gateway</span>
+      </div>
+    </div>
+
+    <div class="card cyan">
+      <h3>☁️ Neo-Twin VPS</h3>
+      <div class="role">Twin ingestion</div>
+      <div class="specs">Hetzner · 5.161.126.222</div>
+      <div class="runs">
+        <strong>Single-purpose:</strong>
+        <ul>
+          <li>twin-ingest — primary phone WhatsApp listener</li>
+          <li>Writes everything to neo-brain.memories</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card purple">
+      <h3>📣 Slave MBP · "The Publisher + Browser"</h3>
+      <div class="role">Posting + URL intelligence node</div>
+      <div class="specs">Apple M1 Pro · 16GB · 500GB<br/>100.93.211.9 (Tailscale)</div>
+      <div class="runs">
+        <strong>Two agents (single host, single Chromium pool):</strong>
+        <ul>
+          <li><b>publisher-agent</b> — API-based posting (LinkedIn ✓, FB Page ✓, IG/Threads blocked by Meta)</li>
+          <li><b>browser-agent</b> — Pattern C: queue listener + HTTP server :3199 (in progress)</li>
+          <li>Playwright + Chromium 1217 (bundled, shared between both agents)</li>
+          <li>Per-platform Chrome user-data-dirs for browser-side posting</li>
+        </ul>
+        <span class="badge live">LinkedIn + FB Page LIVE · browser-agent IN PROGRESS</span>
+      </div>
+    </div>
+
+    <div class="card green">
+      <h3>🛠 tr-home · Threadripper @ Neo's Home</h3>
+      <div class="role">Local LLM rig + FCC wall display · Cyberjaya home (relocated from Coplace 11)</div>
+      <div class="specs">AMD Threadripper 7970X · 32 cores / 64 threads · 64GB DDR5<br/>RX 7900 XTX · 24GB VRAM · ROCm 6.2 · Ubuntu 24.04<br/>100.126.89.7 (Tailscale) · 913GB SSD</div>
+      <div class="runs">
+        <strong>Currently runs:</strong>
+        <ul>
+          <li><strong>reviewer-agent</strong> — Claude Sonnet 4.6, PR verdicts (pm2, moved 2026-05-11 · Phase 8)</li>
+          <li><strong>planner-agent</strong> — Claude Sonnet 4.6, intent decomposition (pm2, moved 2026-05-11 · Phase 8)</li>
+          <li><strong>dev-agent</strong> — Claude Opus 4.6, opens/merges PRs (pm2, moved 2026-05-11 · Phase 8)</li>
+          <li>Ollama (qwen2.5:32B Q4 pulled, ROCm-accelerated) — available for future local-inference swap, not in use by the 3 agents yet</li>
+          <li>tr-home-dashboard — sidecar at <code>:3500</code> (FCC Phase 1)</li>
+          <li>tr-home heartbeat — root cron, 60s</li>
+          <li>Chromium kiosk — autostart on GNOME login → command.neotodak.com (FCC wall display)</li>
+          <li>Phase 6 venv at <code>~/.openclaw/phase6/.venv/</code> — PyTorch 2.5.1+rocm6.2 + transformers + peft + accelerate (Phase 6 fine-tuning rig)</li>
+        </ul>
+        <strong>Strategic role:</strong>
+        <ul>
+          <li>Host for LLM-heavy NACA agents (Phase 8 outcome — reviewer/planner/dev)</li>
+          <li>Phase 6 hybrid: tr-home for iteration runs (≤7B LoRA fits 24GB), RunPod for production runs (≥13B bases)</li>
+          <li>Future: trained voice rewriter served back to neo-twin Tier 2; optional local LLM backend for the 3 agents</li>
+        </ul>
+        <span class="badge live">tier_2 box · 3 NACA agents (Phase 8) + Phase 6 rig · pm2-neo systemd unit survives reboot</span>
+      </div>
+    </div>
+
+    <div class="card" style="border-color:#ec4899">
+      <h3>🐕 Xiaozhi Dog · Desk Voice Device</h3>
+      <div class="role">Physical Siti — voice in/out on Neo's desk</div>
+      <div class="specs">ESP32-S3 · 8MB PSRAM · 16MB flash<br/>board: light_ai v2.0.4.4 · WiFi<br/>Neo's desk · Cyberjaya home</div>
+      <div class="runs">
+        <strong>Voice Pipeline:</strong>
+        <ul>
+          <li>Wake word → WebSocket → Siti VPS</li>
+          <li>ASR: OpenAI Whisper (~1.5s)</li>
+          <li>LLM: Real Siti (Gemini + 32 tools + neo-brain)</li>
+          <li>TTS: ElevenLabs AFIFAH voice (~1.3s)</li>
+          <li>Opus audio + 4-byte length header → speaker</li>
+        </ul>
+        <span class="badge live">Phase B.4 done</span>
+        <p style="margin-top:8px;font-size:0.85em;color:#ec4899"><strong>First physical NACA device.</strong> Proof of concept: any hardware with a mic + speaker can become a Siti node.</p>
+      </div>
+    </div>
+
+    <div class="card" style="border-color:#ec4899">
+      <h3>🥧 naca-pi · Raspberry Pi 4</h3>
+      <div class="role">Compute node — role TBD</div>
+      <div class="specs">BCM2711 quad-core A72 1.8GHz · 8GB LPDDR4<br/>58GB Lexar A2 · Debian Trixie Lite 64-bit<br/>Tailscale: 100.114.3.1 · Neo's desk</div>
+      <div class="runs">
+        <strong>Capabilities:</strong>
+        <ul>
+          <li>GPIO: 40 pins (sensors, cameras, Flipper Zero bridge)</li>
+          <li>USB 3.0 x2 (external devices, SDR dongles)</li>
+          <li>Camera port (facial recognition, CV)</li>
+          <li>8GB RAM = can run local ML models</li>
+        </ul>
+        <strong>Candidate roles:</strong>
+        <ul>
+          <li>Siti Voice v2 (better audio than xiaozhi dog)</li>
+          <li>Pentest agent (paired with Flipper Zero)</li>
+          <li>Computer vision node (camera + face detection)</li>
+          <li>Local NACA agent runner (Claude Code CLI)</li>
+        </ul>
+        <span class="badge live">on fleet</span>
+      </div>
+    </div>
+
+    <div class="card" style="border-color:#ec4899">
+      <h3>🐬 Flipper Zero · Mflip</h3>
+      <div class="role">Physical-layer security tool</div>
+      <div class="specs">STM32 + ESP32-S2 WiFi dev board<br/>Firmware: Unleashed 0.84<br/>Connected to naca-pi via USB 3.0</div>
+      <div class="runs">
+        <strong>Capabilities (CLI-verified):</strong>
+        <ul>
+          <li>Sub-GHz: scan/TX/RX (remotes, sensors, garage doors)</li>
+          <li>NFC: read/emulate/write cards</li>
+          <li>RFID: read/emulate access badges</li>
+          <li>IR: capture/replay TV/AC remotes</li>
+          <li>WiFi: scan/deauth via Marauder (ESP32 dev board)</li>
+          <li>GPIO: bridge to external hardware</li>
+          <li>BadUSB: keystroke injection</li>
+        </ul>
+        <strong>Remote control chain:</strong>
+        <p style="font-size:0.85em">Siti (VPS) → Tailscale → naca-pi → USB serial → Flipper CLI<br/><em>Verified: "Siti, scan WiFi" on WhatsApp → 55 APs returned in 24 seconds.</em></p>
+        <strong>Siti tools:</strong> <code>scan_wifi</code>, <code>scan_network</code> — ask via WhatsApp or voice
+        <span class="badge live">operational</span>
+      </div>
+    </div>
+
+    <div class="card" style="border-color:#f43f5e">
+      <h3>🐕 xiaozhi-dog · Voice Siti</h3>
+      <div class="role">Wake-word voice device on Neo's desk</div>
+      <div class="specs">ESP32-S3 light_ai unit · Home WiFi<br/>Firmware: de-Chinafied light_ai build<br/>Speaker + mic, no display</div>
+      <div class="runs">
+        <strong>Pipeline:</strong>
+        <p style="font-size:0.85em">wake → WebSocket → Siti VPS → Whisper ASR (~1.5s) → Siti decides → ElevenLabs TTS AFIFAH (~1.3s) → speaker</p>
+        <strong>Phase A:</strong> ✓ complete (basic voice loop working)<br/>
+        <strong>Phase B:</strong> paused (advanced features). Full state in memory <code>b1b9db80</code>.
+        <span class="badge live">operational</span>
+      </div>
+    </div>
+
+    <div class="card" style="border-color:#94a3b8">
+      <h3>💻 neo-mbp · Operator station</h3>
+      <div class="role">Neo's primary MacBook Pro</div>
+      <div class="specs">MacBook Pro · arm64 · macOS<br/>Tailnet: 100.95.222.11<br/>Hostname on tailnet: macbook-pro-2</div>
+      <div class="runs">
+        Where Neo runs <strong>Claude Code CLI</strong>, edits code, opens PRs, pastes focus prompts. Reports presence + battery to fleet so other agents can answer "is Neo at his desk?" Not autonomous; the human's station.
+        <span class="badge live">primary operator</span>
+      </div>
+    </div>
+
+    <div class="card" style="border-color:#6b7280; opacity:0.75">
+      <h3>💤 slaves-macbook-pro-1 · reserved</h3>
+      <div class="role">On Tailscale, role TBD</div>
+      <div class="specs">MacBook Pro · arm64 · macOS<br/>On the tailnet, kept reserved by Neo<br/>No agents deployed, no heartbeat published yet</div>
+      <div class="runs">
+        Showed up in Tailscale roster; Neo flagged it as reserved for future use. Candidate roles when activated: <em>second slave/publisher node</em> · <em>Studio backup</em> · <em>local LLM dev box</em> · <em>browser-automation overflow</em>. Not in <code>agent_registry</code> until a role is committed.
+        <span class="badge" style="background:rgba(107,114,128,0.18); color:var(--grey); border:1px solid var(--grey);">reserved</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- DATA FLOW -->
+  <div class="section" id="flow">
+    <h2>How a request flows</h2>
+    <p>Two examples. First a quick read, then a full write-and-deploy.</p>
+  </div>
+  <div class="diagram">
+    <div class="mermaid">
+sequenceDiagram
+    participant Neo as 📱 Neo (WhatsApp)
+    participant Siti as 💬 Siti (Hetzner)
+    participant NB as 🧠 neo-brain
+    participant Planner as 📋 planner
+    participant CLAW as 💻 CLAW worker
+
+    Neo->>Siti: "Summarize group chat X"
+    Siti->>NB: search_twin_memory("group X recent")
+    NB-->>Siti: 50 relevant messages
+    Siti->>Siti: Gemini 2.5 Flash summarizes
+    Siti-->>Neo: 4-bullet group summary
+    Note over Neo,CLAW: For complex tasks → planner decomposes
+    Neo->>Siti: "Post this to LinkedIn at 9am"
+    Siti->>NB: write scheduled_action
+    NB->>NB: timekeeper polls, fires at 9am
+    NB->>CLAW: agent_command(post_to_linkedin)
+    CLAW->>CLAW: run linkedin-post.py
+    CLAW->>NB: complete_agent_command(done, url)
+    NB->>Siti: send_whatsapp_notification
+    Siti-->>Neo: ✅ Posted to LinkedIn — link
+    </div>
+  </div>
+
+  <!-- SHARED BRAIN -->
+  <div class="section" id="brain">
+    <h2>The shared brain · neo-brain</h2>
+    <p>One database, every agent reads and writes. Powered by Supabase + pgVector + Gemini 768-d embeddings. Project ref <span class="mono">xsunmervpyrplzarebva</span>.</p>
+  </div>
+  <div class="grid grid-3">
+    <div class="card cyan">
+      <h3>memories</h3>
+      <div class="role">Everything anyone ever said</div>
+      <div class="runs"><ul>
+        <li>11K+ rows · vector-searchable</li>
+        <li>Sources: WhatsApp, voice notes, sessions, decisions</li>
+        <li>Powers all "do you remember…" queries</li>
+      </ul></div>
+    </div>
+    <div class="card cyan">
+      <h3>people</h3>
+      <div class="role">Who's in Neo's network</div>
+      <div class="runs"><ul>
+        <li>1265+ contacts with bio/relationship/traits</li>
+        <li>Auto-extracted from WhatsApp by Siti</li>
+      </ul></div>
+    </div>
+    <div class="card cyan">
+      <h3>agent_commands</h3>
+      <div class="role">The shared task queue</div>
+      <div class="runs"><ul>
+        <li>Agents drop tasks for each other here</li>
+        <li>Workers claim, execute, write back results</li>
+      </ul></div>
+    </div>
+    <div class="card cyan">
+      <h3>scheduled_actions</h3>
+      <div class="role">Future-dated work</div>
+      <div class="runs"><ul>
+        <li>"Remind me at 9pm" / "Post on Monday"</li>
+        <li>RRULE recurrence support</li>
+      </ul></div>
+    </div>
+    <div class="card cyan">
+      <h3>media</h3>
+      <div class="role">All photos/voice/video</div>
+      <div class="runs"><ul>
+        <li>Bytes on NAS MinIO, metadata + transcripts here</li>
+        <li>Semantic search via match_media RPC</li>
+      </ul></div>
+    </div>
+    <div class="card cyan">
+      <h3>credentials</h3>
+      <div class="role">Encrypted vault</div>
+      <div class="runs"><ul>
+        <li>API keys, passwords, tokens</li>
+        <li>Each agent fetches what it needs at boot</li>
+      </ul></div>
+    </div>
+  </div>
+
+  <!-- NACA APP -->
+  <div class="section" id="app">
+    <h2>NACA app · the operator cockpit</h2>
+    <p>One Flutter app (web + mobile), 8 top-level tabs. This is what Neo opens to actually run things.</p>
+  </div>
+  <div class="grid grid-4">
+    <div class="card green"><h3>HQ</h3><div class="role">Fleet overview, agent insights, costs, infrastructure health</div></div>
+    <div class="card cyan"><h3>SITI</h3><div class="role">WhatsApp control, contacts, Siti settings + tools</div></div>
+    <div class="card cyan"><h3>TERM</h3><div class="role">Claude Code terminal sessions on the VPS</div></div>
+    <div class="card cyan"><h3>PROJ</h3><div class="role">Project switcher, working dir tracker</div></div>
+    <div class="card amber"><h3>MEM</h3><div class="role">neo-brain browser: memories, people, search, media</div></div>
+    <div class="card amber"><h3>SCHED</h3><div class="role">Scheduled jobs queue + Content drafts (review + approve)</div></div>
+    <div class="card cyan"><h3>WSPC</h3><div class="role">Google Workspace browser: 434 users, 257 drives, file search</div></div>
+    <div class="card cyan"><h3>CFG</h3><div class="role">Settings, voice, theme</div></div>
+  </div>
+
+  <!-- LOAD -->
+  <div class="section" id="load">
+    <h2>Where the load is right now</h2>
+    <p>Honest read on which machine is doing what, and where to spread the work.</p>
+    <p style="color: #888; font-size: 0.9rem;"><em>Plain English: this is the table that answers "is any one machine doing too much?" After two rebalances (NAS Ugreen 2026-05-04 + tr-home Phase 8 2026-05-11) the answer is now no — Siti VPS is down to 5 network-facing processes, NAS Ugreen hosts the 4 ops agents, and tr-home runs the 3 LLM-heavy agents. The roadmap below is the historical record of how we got here.</em></p>
+  </div>
+  <table>
+    <thead><tr><th>Machine</th><th>Agents hosted</th><th>RAM headroom</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Siti VPS</strong> (8GB Hetzner)</td><td>5 — siti-router, siti-ingest, deployer-agent, face-service, naca-backend <em>(+ naca-mcp-bridge-http; was 9 → 5 → now 5 network-facing only)</em></td><td>~7 GB</td><td><span style="color:var(--green)">🟢 healthy, network-facing-only role</span></td></tr>
+      <tr><td><strong>CLAW</strong> (M4 24GB) — Studio</td><td>3 PM2 + ~12 launchd jobs (supervisor, pr-decision-dispatcher, gateway, plaud-ingest, ...)</td><td>~8 GB</td><td><span style="color:var(--green)">🟢 healthy (Ollama dropped)</span></td></tr>
+      <tr><td><strong>Slave MBP</strong> (M1 Pro 16GB) — Publisher</td><td>2 — browser-agent, publisher-agent</td><td>~12-13 GB</td><td><span style="color:var(--green)">🟢 healthy</span></td></tr>
+      <tr><td><strong>Twin VPS</strong></td><td>2 — twin-ingest, neo-twin</td><td>plenty</td><td><span style="color:var(--green)">🟢 healthy</span></td></tr>
+      <tr><td><strong>tr-home</strong> (Threadripper 7970X / 64GB / 7900 XTX)</td><td>3 NACA agents — reviewer · planner · dev (Phase 8) <em>+ Phase 6 LLM rig + FCC sidecar</em></td><td>~58 GB</td><td><span style="color:var(--green)">🟢 active fleet member (Phase 8 cutover 2026-05-11)</span></td></tr>
+      <tr><td><strong>NAS Ugreen</strong> (Pentium Gold 23GB)</td><td><strong>4 NACA agents in Docker</strong> — timekeeper, verifier-agent, toolsmith, poster-agent <em>(+ existing MinIO, n8n, Gitea, Uptime Kuma, Tailscale)</em></td><td>plenty</td><td><span style="color:var(--green)">🟢 active fleet member (was: heartbeat only)</span></td></tr>
+      <tr><td><strong>TDCC VPS</strong> (Singapore)</td><td>GAM7 only (Workspace gateway)</td><td>plenty</td><td><span style="color:var(--green)">🟢 healthy</span></td></tr>
+      <tr><td><strong>naca-pi</strong> (Pi 4 8GB)</td><td>0 — sandbox</td><td>~6 GB</td><td><span style="color:var(--grey)">⚪ tier_3 sandbox, role TBD</span></td></tr>
+    </tbody>
+  </table>
+  <div class="callout green" style="margin-top: 14px;"><strong>Two rebalances complete:</strong> (a) 2026-05-04 — Siti VPS down from 9 → 5 NACA agents, NAS Ugreen activated with 4 Dockerised ops agents. (b) 2026-05-11 (Phase 8) — reviewer, planner, dev moved Siti VPS → tr-home. Siti VPS is now network-facing-only (siti-router, siti-ingest, deployer, face-service, naca-backend, naca-mcp-bridge-http). tr-home went from "heartbeat only" → 3 active LLM agents + Phase 6 rig.</div>
+
+  <h3 style="margin-top: 28px;">🧭 Rebalancing roadmap — ✅ done (2026-05-04 NAS + 2026-05-11 tr-home)</h3>
+  <p style="color: #888;"><em>Plain English: each row says "this agent currently lives at X; it should move to Y because Z." We do them one at a time, verify each before the next. None of these are urgent — the fleet runs fine today.</em></p>
+  <table>
+    <thead><tr><th>Phase</th><th>Move</th><th>Why</th><th>Outcome</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>A · ✅ done</strong></td>
+        <td><code>timekeeper-agent</code> · Siti VPS → NAS Docker</td>
+        <td>Just a cron-runner that polls <code>scheduled_actions</code>. NAS has Docker, plenty of RAM, runs 24/7.</td>
+        <td>🟢 mem 93mb→64mb · 0 missed jobs (concurrent cutover, atomic claim)</td>
+      </tr>
+      <tr>
+        <td><strong>A · ✅ done</strong></td>
+        <td><code>verifier-agent</code> · Siti VPS → NAS Docker</td>
+        <td>Read-only monitor. Confirms merged PRs actually deployed. Lowest blast radius.</td>
+        <td>🟢 mem 95mb→68mb · 5/5 deploy URLs probing OK from NAS</td>
+      </tr>
+      <tr>
+        <td><strong>B · ✅ done</strong></td>
+        <td><code>toolsmith-agent</code> · Siti VPS → NAS Docker <em>(pivoted from tr-home — no Docker there)</em></td>
+        <td>LLM-driven, low-frequency. Pure orchestration (Claude Sonnet API calls), no heavy local compute. NAS handles fine.</td>
+        <td>🟢 mem ~93mb→61mb · sequential cutover (~5s gap, status-based claim)</td>
+      </tr>
+      <tr>
+        <td><strong>B · ✅ done</strong></td>
+        <td><code>poster-agent</code> · Siti VPS → NAS Docker <em>(pivoted from Slave MBP — no Docker there)</em></td>
+        <td>poster talks to browser/publisher via agent_commands queue, not direct calls — so Slave-MBP co-location offered no real benefit. NAS Docker keeps the proven recipe.</td>
+        <td>🟢 mem ~93mb→62mb · concurrent cutover (atomic claim — line 280 of index.js)</td>
+      </tr>
+      <tr>
+        <td><strong>C · ✅ done 2026-05-11</strong></td>
+        <td><code>reviewer-agent</code>, <code>planner-agent</code>, <code>dev-agent</code> · Siti VPS → tr-home (Phase 8)</td>
+        <td>LLM-heavy work belongs on the box with 64GB + GPU. The agents only need network access to neo-brain, GitHub, and the Anthropic API — none of which require Siti-VPS-local coupling.</td>
+        <td>🟢 hard cutover · 0 stuck commands · 3/3 fresh heartbeats from tr-home · pm2 save + pm2-neo systemd unit · Hetzner pm2 left stopped 24h for rollback</td>
+      </tr>
+      <tr>
+        <td><strong>future</strong></td>
+        <td>Local LLM backend for the 3 tr-home agents (Anthropic → Ollama qwen2.5:32b)</td>
+        <td>Threadripper + 7900 XTX is loaded with qwen2.5:32b already. Swap Anthropic API calls for local inference where quality is acceptable. Trade subscription cost for compute.</td>
+        <td>🟠 separate sprint — needs per-agent prompt evaluation + fallback logic; not blocking</td>
+      </tr>
+      <tr>
+        <td><strong>stay</strong></td>
+        <td><code>siti-router</code>, <code>siti-ingest</code>, <code>deployer-agent</code>, <code>face-service</code>, <code>naca-backend</code>, <code>naca-mcp-bridge-http</code></td>
+        <td>Network-facing (WA gateway, HTTP APIs, MCP bridge) or host-locally coupled (deployer SSH-deploys local Hetzner pm2). These belong on the VPS.</td>
+        <td>—</td>
+      </tr>
+      <tr>
+        <td><strong>stay</strong></td>
+        <td><code>supervisor</code>, <code>pr-decision-dispatcher</code> on CLAW</td>
+        <td>Intentionally off-VPS for blast-radius isolation. CLAW being Neo's dev machine = the human is right there if something breaks.</td>
+        <td>—</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="callout green"><strong>Studio / Publisher split shipped 2026-04-29.</strong> CLAW becomes the Studio node — generates media via cloud APIs (Higgsfield/Veo/OpenArt/Kling) and saves to NAS MinIO. Slave MBP becomes the Publisher node — opens Chrome with per-platform login profiles, pushes approved drafts to social media. Single-role-per-node = cleaner debugging, no browser-state contention. Ollama dropped entirely (cloud APIs at NACA's scale are cheaper than the 5GB RAM cost).</div>
+
+  <!-- MAY 2026 REVAMP -->
+  <div class="section" id="revamp">
+    <h2>🩺 Discipline layer · May 2026 revamp</h2>
+    <p>The architecture above is unchanged. What we added this month is a layer of <strong>discipline</strong> on top: tier classification, a canonical work flow, scope-tagged memory, hourly digest mode for narration, and a fleet health-check tool.</p>
+    <p style="color: #888;"><em>Plain English: the agents and machines are the same. We added rules and labels so agents (and humans) don't accidentally step on each other or spam the WhatsApp inbox.</em></p>
+  </div>
+
+  <!-- YOU ARE HERE — REVAMP-V1.0.0 progress strip -->
+  <style>
+    .progress-strip { margin: 18px 0 24px; padding: 18px 20px; background: linear-gradient(90deg, rgba(6,182,212,0.08), rgba(139,92,246,0.06)); border: 1px solid var(--cyan); border-radius: 10px; }
+    .progress-strip-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+    .progress-strip-head .label { color: var(--cyan); font-weight: 700; font-size: 0.78rem; letter-spacing: 1.5px; text-transform: uppercase; }
+    .progress-strip-head .title { font-weight: 600; font-size: 1.05rem; }
+    .progress-strip-head .now { color: var(--green); font-size: 0.82rem; }
+    .step-row { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; margin-bottom: 14px; }
+    .step-cell { padding: 10px 8px; background: rgba(0,0,0,0.3); border-radius: 6px; border-top: 3px solid var(--grey); position: relative; }
+    .step-cell.done { border-top-color: var(--green); }
+    .step-cell.now { border-top-color: var(--amber); background: rgba(245,158,11,0.08); }
+    .step-cell.todo { opacity: 0.55; }
+    .step-cell .num { font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; color: #888; }
+    .step-cell .nm { font-size: 0.78rem; font-weight: 600; margin-top: 2px; }
+    .step-cell .dt { font-size: 0.68rem; color: #aaa; margin-top: 4px; }
+    .step-cell.now::after { content: '🎯 you are here'; position: absolute; top: -10px; right: -2px; background: var(--amber); color: #000; font-size: 0.6rem; padding: 2px 6px; border-radius: 100px; font-weight: 700; letter-spacing: 0.5px; }
+    .substep-row { display: flex; flex-wrap: wrap; gap: 6px; }
+    .substep { font-size: 0.72rem; padding: 4px 8px; border-radius: 100px; background: rgba(0,0,0,0.3); border: 1px solid var(--border); }
+    .substep.done { background: rgba(16,185,129,0.12); border-color: var(--green); color: var(--green); }
+    .substep.now { background: rgba(245,158,11,0.15); border-color: var(--amber); color: var(--amber); font-weight: 600; }
+    .substep.todo { color: #888; }
+  </style>
+  <div class="progress-strip">
+    <div class="progress-strip-head">
+      <span class="label">REVAMP-V1.0.0</span>
+      <span class="title">Major Revamp NACA · started 2026-05-04</span>
+      <span class="now" style="margin-left:auto;">🎯 <strong>rebalance complete (4/4)</strong> · Step 7 soak ready to start</span>
+    </div>
+    <div class="step-row">
+      <div class="step-cell done"><div class="num">Step 1</div><div class="nm">✓ Snapshot</div><div class="dt">tier classification, 37 projects</div></div>
+      <div class="step-cell done"><div class="num">Step 2</div><div class="nm">✓ WORKFLOW.md</div><div class="dt">canonical 5-phase flow</div></div>
+      <div class="step-cell done"><div class="num">Step 3</div><div class="nm">✓ Health tool</div><div class="dt">check-project-health.js</div></div>
+      <div class="step-cell done"><div class="num">Step 4</div><div class="nm">✓ Focus prompts</div><div class="dt">6 host briefings + INDEX</div></div>
+      <div class="step-cell done"><div class="num">Step 5</div><div class="nm">✓ Agent template</div><div class="dt">5-section · reviewer migrated</div></div>
+      <div class="step-cell now"><div class="num">Step 6</div><div class="nm">⚡ Selective scrap &amp; migrate</div><div class="dt">unfix list + rebalance · 3/9 + 1/4 done</div></div>
+      <div class="step-cell todo"><div class="num">Step 7</div><div class="nm">○ Soak</div><div class="dt">7-day passive observation</div></div>
+    </div>
+
+    <div style="font-size: 0.78rem; color: #ccc; margin: 12px 0 6px;"><strong>Step 6 sub-progress · the unfix list</strong> (3/9 closed)</div>
+    <div class="substep-row" style="margin-bottom: 14px;">
+      <span class="substep done">✓ siti hold-guard restored (siti#42)</span>
+      <span class="substep done">✓ person-sync decommissioned</span>
+      <span class="substep done">✓ backup-sync false-positive resolved (cadence-aware tool)</span>
+      <span class="substep todo">○ neo-twin heartbeat</span>
+      <span class="substep todo">○ xiaozhi-dog monitor</span>
+      <span class="substep todo">○ app icon swap</span>
+      <span class="substep todo">○ SITI tab hardcoded display string</span>
+      <span class="substep todo">○ hardcoded paths → DB-driven</span>
+      <span class="substep todo">○ scope-tag backfill (optional)</span>
+    </div>
+
+    <div style="font-size: 0.78rem; color: #ccc; margin-bottom: 6px;"><strong>Step 6 · agent rebalance</strong> (4/4 ✓ all moves complete 2026-05-04)</div>
+    <div class="substep-row">
+      <span class="substep done">✓ timekeeper · Siti VPS → NAS Docker</span>
+      <span class="substep done">✓ verifier-agent · Siti VPS → NAS Docker</span>
+      <span class="substep done">✓ toolsmith-agent · Siti VPS → NAS Docker</span>
+      <span class="substep done">✓ poster-agent · Siti VPS → NAS Docker</span>
+    </div>
+    <div style="font-size: 0.75rem; color: #888; margin-top: 8px; padding: 6px 10px; background: rgba(16,185,129,0.06); border-left: 2px solid var(--green); border-radius: 3px;">
+      <strong style="color: var(--green);">Final fleet state:</strong> Siti VPS down to 5 NACA agents (was 9). NAS now hosts 4 NACA agents in Docker (timekeeper, verifier, toolsmith, poster). toolsmith pivoted from tr-home → NAS (no Docker on tr-home, Phase 6 inference target stays on tr-home). poster pivoted from Slave MBP → NAS (no Docker on Slave; cross-host comms via agent_commands queue makes co-location moot). Pattern proven 4 times — replicable for any future agent move.
+    </div>
+  </div>
+  <div class="grid grid-3">
+    <div class="card">
+      <h3>🏷️ Project tier classification</h3>
+      <div class="role">Every project gets a sticker</div>
+      <div class="runs"><strong>Technical:</strong> new <code>tier</code> column on <code>project_registry</code>: <code>tier_1</code> (shared infra · normative rules) / <code>tier_2</code> (standalone production · recommended) / <code>tier_3</code> (sandbox · lightweight) / <code>decommissioned</code> / <code>transferred</code>. Health-check tool and WORKFLOW.md query this instead of hardcoding lists.<br/><br/><strong>Plain English:</strong> 37 projects each have a colored sticker — 🔴 fleet-critical, 🟡 production, 🟢 sandbox. Agents know how careful to be by reading the sticker.</div>
+    </div>
+    <div class="card">
+      <h3>📜 WORKFLOW.md — canonical work flow</h3>
+      <div class="role">Universal 5-phase rhythm</div>
+      <div class="runs"><strong>Technical:</strong> single source of truth at <code>claude-tools-kit/WORKFLOW.md</code>. Phases: Orient → Plan → Execute → Save → Verify. Tier-aware (tier_1 normative; tier_2 recommended; tier_3 lightweight). Referenced from <code>~/.claude/CLAUDE.md</code> and every agent's system prompt.<br/><br/><strong>Plain English:</strong> a master playbook every CC session and every agent reads. Says "before editing anything, do these checks; before merging, do these verifications." No tribal knowledge.</div>
+    </div>
+    <div class="card">
+      <h3>🏠 Per-host focus prompts</h3>
+      <div class="role">Paste-and-go session briefings</div>
+      <div class="runs"><strong>Technical:</strong> 6 docs at <code>claude-tools-kit/prompts/focus/</code> — SITI, NACA-APP, CLAW, TR-HOME, NAS-UGREEN, SLAVE-MBP. Each ~100-160 lines: live layout, deploy flow, hard rules, debug entry points, memory discipline.<br/><br/><strong>Plain English:</strong> each fleet machine has its own briefing doc. Open a fresh CC session, paste the focus prompt for whatever machine, and the session knows the local quirks instantly.</div>
+    </div>
+    <div class="card">
+      <h3>🎯 Agent prompt template</h3>
+      <div class="role">Common shape for all LLM agents</div>
+      <div class="runs"><strong>Technical:</strong> <code>prompts/agents/AGENT-PROMPT-TEMPLATE.md</code> — 5 sections: Standing rules / Role / Capabilities / Constraints / Escalation. Reviewer-agent migrated as canonical example; planner / dev-agent / verifier / dispatcher / supervisor / toolsmith / siti migrate passively as touched.<br/><br/><strong>Plain English:</strong> all agents that use Claude get prompts in the same shape. Change the master once → every agent picks it up next time it's edited.</div>
+    </div>
+    <div class="card">
+      <h3>🏷️ Layer A · memory scope tagging</h3>
+      <div class="role">No more mixed-context recall</div>
+      <div class="runs"><strong>Technical:</strong> Siti's <code>saveMemoryAsync</code> tags every inbound message with <code>metadata.scope</code> ∈ {<code>personal</code>, <code>ops</code>, <code>knowledge</code>, <code>fleet</code>}. <code>retrieveTwinMemories</code> filters recall by query-classified allowed-scopes. Legacy untagged memories inferred via category prefix.<br/><br/><strong>Plain English:</strong> Siti's brain now has folders. When you ask "remember the Pi 4 thing?", PR briefs don't leak in. When you ask "what merged today?", personal chat doesn't leak in.</div>
+    </div>
+    <div class="card">
+      <h3>📋 Layer B · hourly digest mode</h3>
+      <div class="role">Narration batched, alerts real-time</div>
+      <div class="runs"><strong>Technical:</strong> Siti classifies <code>send_whatsapp_notification</code> commands at delivery. Planner / CI/CD / supervisor / timekeeper messages → queued as <code>memories(category='digest_queue')</code>. Hourly cron drains via <code>flushDigest()</code>. Failure markers (<code>❌ ⚠️ fail* error* down stuck</code>) bypass digest → real-time.<br/><br/><strong>Plain English:</strong> "PR merged" and "deploy fired" notifications get bundled into one message every hour. "Something broke" still wakes you immediately.</div>
+    </div>
+    <div class="card">
+      <h3>🛡️ Health-check tool</h3>
+      <div class="role">One command, full fleet picture</div>
+      <div class="runs"><strong>Technical:</strong> <code>node tools/check-project-health.js [project]</code>. Cadence-aware (scheduled jobs vs always-running). Filters archived agents. Exit codes 0/2/1 for cron.<br/><br/><strong>Plain English:</strong> one command tells you "is the fleet healthy?" — no need to remember all the queries. Cron-ready for periodic checks.</div>
+    </div>
+    <div class="card">
+      <h3>🔧 Approval-gate fixes</h3>
+      <div class="role">No more silent failures on "approve"</div>
+      <div class="runs"><strong>Technical:</strong> (1) save inbound message BEFORE LLM gate (siti#39) so dispatcher sees your reply. (2) hold-guard restored (siti#42) — <code>hold pr #N</code> no longer silently cancels needs_review rows. (3) reviewer skips already-merged PRs (reviewer-agent#2). (4) webhook intent dedup (naca-app#4).<br/><br/><strong>Plain English:</strong> when you type "approve" in WhatsApp, the PR actually merges now. Hallucinated success messages, post-merge audit spam, and silent-cancel-on-hold are all gone.</div>
+    </div>
+    <div class="card">
+      <h3>🗂️ Three-layer prompt structure</h3>
+      <div class="role">No overlap between layers</div>
+      <div class="runs"><strong>Technical:</strong> <em>WORKFLOW.md</em> (universal) → <em>prompts/focus/&lt;HOST&gt;.md</em> (host-specific) → <em>prompts/agents/AGENT-PROMPT-TEMPLATE.md</em> (role-specific). Each layer references the next. Change the universal layer once → cascades.<br/><br/><strong>Plain English:</strong> three nested briefing docs. The outer says "here's how to work on anything," the middle says "here's how to work on this machine," the inner says "here's how this specific agent should behave."</div>
+    </div>
+  </div>
+
+  <div class="callout green" style="margin-top: 20px;"><strong>Result:</strong> 17 agents live, 0 stuck commands, 0 orphan PR decisions, 165 memory writes/24h, fleet health PASS for the first time in weeks. 24 PRs merged on 2026-05-04 across 6 repos with zero downtime.</div>
+
+  <!-- MONITORING -->
+  <div class="section" id="monitoring">
+    <h2>How we know it's working</h2>
+    <p>Three independent signals.</p>
+  </div>
+  <div class="grid grid-3">
+    <div class="card green">
+      <h3>💓 Heartbeats</h3>
+      <div class="role">Every agent reports every 60s</div>
+      <div class="runs">If a heartbeat goes stale &gt; 5 min, supervisor escalates.</div>
+    </div>
+    <div class="card amber">
+      <h3>📊 Uptime Kuma</h3>
+      <div class="role">Independent monitor on NAS</div>
+      <div class="runs">15+ HTTP/TCP/push monitors. Status page surfaces in NACA HQ.</div>
+    </div>
+    <div class="card purple">
+      <h3>🛡️ Supervisor</h3>
+      <div class="role">The watcher on CLAW</div>
+      <div class="runs">Cross-references heartbeats + Kuma + agent_commands queue depth. WAs Neo on red.</div>
+    </div>
+  </div>
+
+  <!-- ===== PLATFORM REFACTOR v1 · engineering history ===== -->
+  <div class="section" id="refactor">
+    <h2>Platform refactor v1 · how Siti got separated from NACA</h2>
+    <p>Engineering view: every tool, router rule, and specialist used to live inside <strong>siti-v2</strong>. Any new NACA interface — the mobile app, an MCP bridge for Claude Code sessions, future voice surfaces — would have needed to duplicate the same code or import from a WhatsApp repo. The refactor lifted the platform code (kernel, capabilities, router engine) into standalone <code>@naca/*</code> packages that any interface can consume. Siti stays as the WhatsApp interface; the platform stays platform. <strong>Shipped in 11 phases between 2026-05-11 and 2026-05-11</strong> (yes, the same day — focused work).</p>
+  </div>
+
+  <!-- Refactor progress meter -->
+  <section class="refactor-progress">
+    <div class="stats">
       <div class="stat"><span class="num done">11</span><span class="label">Done</span></div>
       <div class="stat"><span class="num next">0</span><span class="label">Next&nbsp;up</span></div>
       <div class="stat"><span class="num parked">0</span><span class="label">Pending</span></div>
       <div class="stat"><span class="num" style="color:#9ca3af">11</span><span class="label">Total</span></div>
     </div>
-    <div class="progress-bar"><div class="progress-fill" style="width:100%"></div></div>
-    <div class="progress-pct">11 of 11 phases shipped · 100% complete (incl. Phase 7b + Phase 8)</div>
+    <div class="bar"><div class="fill" style="width:100%"></div></div>
+    <div class="pct">11 of 11 phases shipped · 100% complete (incl. Phase 7b + Phase 8)</div>
   </section>
 
-  <!-- Numbering note -->
-  <div class="callout">
+  <!-- Numbering callout -->
+  <div class="refactor-numbering">
     <h4>About the numbering</h4>
-    <p>Numbering matches the spec exactly: <a href="https://github.com/broneotodak/naca/blob/main/docs/spec/platform-refactor-v1.md" style="color:var(--cyan)">docs/spec/platform-refactor-v1.md</a>. Sub-labels like <code>2b</code> and <code>4a / 4b</code> exist because the plan evolved mid-refactor — Phase 2 swapped with Phase 3 (tools depend on core, so core had to go first); Phase 4 split into <code>4a</code> (the abstract engine, done) and <code>4b</code> (de-Siti of rules + permissions + 8 specialists, pending) once we saw how WhatsApp-coupled the specialists are. Both spec doc and this page now agree.</p>
+    <p>Numbering matches the spec exactly: <a href="https://github.com/broneotodak/naca/blob/main/docs/spec/platform-refactor-v1.md" style="color:var(--cyan)">docs/spec/platform-refactor-v1.md</a>. Sub-labels like <code>2b</code> and <code>4a / 4b</code> exist because the plan evolved mid-refactor — Phase 2 swapped with Phase 3 (tools depend on core, so core had to go first); Phase 4 split into <code>4a</code> (the abstract engine, done) and <code>4b</code> (de-Siti of rules + permissions + 8 specialists, closed as no-op once we saw how WhatsApp-coupled the specialists are). Both spec doc and this page agree.</p>
   </div>
 
-  <!-- Why -->
-  <section class="section">
-    <h2>Why this refactor</h2>
-    <div class="sublabel">The one-paragraph version</div>
-  </section>
-  <p style="color:#bbb; max-width: 780px; margin-bottom: 20px;">
-    Every tool, router rule, and specialist used to live inside <strong>siti-v2</strong>. That meant any new NACA interface — the mobile app, an MCP bridge for Claude Code sessions, future voice surfaces — would need to duplicate the same code or import from a WhatsApp repo. The refactor lifts the platform code (kernel, capabilities, router engine) into standalone <code>@naca/*</code> packages that any interface can consume. Siti stays as the WhatsApp interface; the platform stays platform.
-  </p>
-
-  <!-- Architecture -->
-  <section class="section">
-    <h2>Architecture target</h2>
-    <div class="sublabel">Three platform packages, many interfaces</div>
-  </section>
-  <pre class="arch">
-<span class="repo">broneotodak/naca</span>                          ← THE PLATFORM (this repo)
+  <h3 style="margin-top: 28px; margin-bottom: 8px; color: #ddd;">Architecture target</h3>
+  <p style="color: #888; font-size: 0.9rem; margin-bottom: 10px;"><em>Three platform packages, many interfaces.</em></p>
+  <pre class="refactor-arch">
+<span class="refactor-arch repo">broneotodak/naca</span>                          ← THE PLATFORM
   packages/
-    <span class="pkg">@naca/core</span>      shared kernel: postgrest, vault, gemini, heartbeat, send
-    <span class="pkg">@naca/tools</span>     25 capabilities (web, media, workspace, comms, state, ops)
-    <span class="pkg">@naca/router</span>    intent classifier (engine) + LLM tiebreak
+    <span class="refactor-arch pkg">@naca/core</span>      shared kernel: postgrest, vault, gemini, heartbeat, send
+    <span class="refactor-arch pkg">@naca/tools</span>     25 capabilities (web, media, workspace, comms, state, ops)
+    <span class="refactor-arch pkg">@naca/router</span>    intent classifier (engine) + LLM tiebreak
 
-<span class="repo">broneotodak/siti-v2</span>                       ← WhatsApp interface
+<span class="refactor-arch repo">broneotodak/siti-v2</span>                       ← WhatsApp interface
   imports @naca/core + @naca/router + @naca/tools
   keeps WhatsApp-specific: wacli transports, envelope mappers,
   Siti's rule list + persona, the 8 specialists
 
-<span class="repo">broneotodak/naca-app</span>                      ← Mobile / web operator console (this site)
+<span class="refactor-arch repo">broneotodak/naca-app</span>                      ← Mobile / web operator console (this site)
   Flutter cross-platform · reads neo-brain via REST
 
-<span class="repo">broneotodak/naca-mcp-bridge</span>               ← Future: Claude Code MCP server
-  <span class="note">(planned — Phase 7)</span>
+<span class="refactor-arch repo">broneotodak/naca-mcp-bridge</span>               ← Claude Code MCP server
+  <span class="refactor-arch note">(stdio Phase 7 · HTTP+SSE Phase 7b — both shipped 2026-05-11)</span>
   </pre>
 
-  <!-- Phase tracker -->
-  <section class="section">
-    <h2>Phases</h2>
-    <div class="sublabel">Top to bottom: shipped → in flight → next → parked</div>
-  </section>
+  <h3 style="margin-top: 32px; margin-bottom: 6px; color: #ddd;">Phases</h3>
+  <p style="color: #888; font-size: 0.9rem; margin-bottom: 10px;"><em>Top to bottom: shipped → in flight → next → parked.</em></p>
 
-  <!-- Phase 0 -->
-  <article class="phase done">
-    <div class="num">0</div>
+  <article class="refactor-phase done">
+    <div class="pnum">0</div>
     <div class="body">
       <h3>Spec lock</h3>
       <p>Locked the refactor plan: created <code>broneotodak/naca</code> repo (private, MIT), committed the spec doc, archived April 22 planning docs, tagged <code>siti-v2</code> at <code>pre-refactor</code> as the rollback anchor.</p>
@@ -365,158 +1470,114 @@ footer a:hover { color: var(--cyan); }
     <div class="status">✓ DONE</div>
   </article>
 
-  <!-- Phase 1 -->
-  <article class="phase done">
-    <div class="num">1</div>
+  <article class="refactor-phase done">
+    <div class="pnum">1</div>
     <div class="body">
       <h3>Monorepo scaffold</h3>
       <p>Empty packages set up so the extraction phases have somewhere to land. <code>pnpm-workspace.yaml</code> + private root <code>package.json</code> + three empty <code>@naca/*</code> packages, each with their own <code>package.json</code>, <code>CLAUDE.md</code>, and a smoke test.</p>
-      <div class="meta">
-        <a href="https://github.com/broneotodak/naca/pull/1">naca&nbsp;PR&nbsp;#1</a>
-        commit <code>0bc0953</code>
-      </div>
+      <div class="meta"><a href="https://github.com/broneotodak/naca/pull/1">naca&nbsp;PR&nbsp;#1</a> · commit <code>0bc0953</code></div>
     </div>
     <div class="status">✓ DONE</div>
   </article>
 
-  <!-- Phase 2 -->
-  <article class="phase done">
-    <div class="num">2</div>
+  <article class="refactor-phase done">
+    <div class="pnum">2</div>
     <div class="body">
       <h3>Extract <code>@naca/core</code> (shared kernel)</h3>
       <p>Lifted siti-v2's daemon kernel into <code>@naca/core</code>: PostgREST wrapper, heartbeat publisher, Gemini clients, Google OAuth, abstract <code>SendModule</code>. Added a new <code>vault.js</code> helper that consolidates credential reads through one audit boundary. <em>Originally numbered Phase 3 in the spec; swapped with the tools extraction because tools depend on core.</em></p>
-      <div class="meta">
-        <a href="https://github.com/broneotodak/naca/pull/3">naca&nbsp;PR&nbsp;#3</a>
-        <a href="https://github.com/broneotodak/siti-v2/pull/57">siti-v2&nbsp;PR&nbsp;#57</a>
-        440/440 tests pass
-      </div>
+      <div class="meta"><a href="https://github.com/broneotodak/naca/pull/3">naca&nbsp;PR&nbsp;#3</a> · <a href="https://github.com/broneotodak/siti-v2/pull/57">siti-v2&nbsp;PR&nbsp;#57</a> · 440/440 tests pass</div>
     </div>
     <div class="status">✓ DONE</div>
   </article>
 
-  <!-- Phase 2b -->
-  <article class="phase done">
-    <div class="num">2b</div>
+  <article class="refactor-phase done">
+    <div class="pnum">2b</div>
     <div class="body">
       <h3>Other fleet agents — closed as no-op</h3>
-      <p>Original premise was that 5 agents (<strong>dev-agent</strong>, <strong>planner-agent</strong>, <strong>reviewer-agent</strong>, <strong>deployer-agent</strong>, <strong>naca-backend</strong>) carry duplicate copies of siti-v2's daemon kernel. <em>Verified on 2026-05-11 — they don't.</em> <code>deployer-agent</code> was rewired to <code>@naca/core</code> as part of Phase 2 (lives inside siti-v2). The other four either use <code>@supabase/supabase-js</code> directly (dev / reviewer / planner — different pattern, intentional choice) or don't touch neo-brain via SDK at all (naca-backend uses native HTTP). Migrating the three Supabase-SDK agents would be a real refactor with stylistic gain only. <strong>Closed as no-op</strong>; vault-only credential migration (hard rule #5) deferred.</p>
-      <div class="meta">
-        <a href="https://github.com/broneotodak/naca/pull/11">naca&nbsp;PR&nbsp;#11</a>
-        spec closure entry
-      </div>
+      <p>Original premise was that 5 agents (<strong>dev-agent</strong>, <strong>planner-agent</strong>, <strong>reviewer-agent</strong>, <strong>deployer-agent</strong>, <strong>naca-backend</strong>) carry duplicate copies of siti-v2's daemon kernel. <em>Verified on 2026-05-11 — they don't.</em> <code>deployer-agent</code> was rewired to <code>@naca/core</code> as part of Phase 2 (lives inside siti-v2). The other four either use <code>@supabase/supabase-js</code> directly (intentional choice) or don't touch neo-brain via SDK at all (naca-backend uses native HTTP). Migrating them would be a real refactor with stylistic gain only. <strong>Closed as no-op</strong>; vault-only credential migration deferred.</p>
+      <div class="meta"><a href="https://github.com/broneotodak/naca/pull/11">naca&nbsp;PR&nbsp;#11</a> · spec closure entry</div>
     </div>
     <div class="status">✓ DONE</div>
   </article>
 
-  <!-- Phase 3 -->
-  <article class="phase done">
-    <div class="num">3</div>
+  <article class="refactor-phase done">
+    <div class="pnum">3</div>
     <div class="body">
       <h3>Extract <code>@naca/tools</code> (the 25 capabilities)</h3>
       <p>All 25 tools moved out of <code>siti-v2/src/dispatcher/tools/</code> into <code>@naca/tools</code>. Calendar, Gmail, Drive, generate-image, generate-video, recall, lookup-resource, make-call, web-search, read-url, recognize-face, save-face, chat-thread-state, and more. Tier-aware registry (<code>buildToolRegistry</code>) exposed cleanly.</p>
-      <div class="meta">
-        <a href="https://github.com/broneotodak/naca/pull/5">naca&nbsp;PR&nbsp;#5</a>
-        <a href="https://github.com/broneotodak/siti-v2/pull/58">siti-v2&nbsp;PR&nbsp;#58</a>
-        360/360 tests pass
-      </div>
+      <div class="meta"><a href="https://github.com/broneotodak/naca/pull/5">naca&nbsp;PR&nbsp;#5</a> · <a href="https://github.com/broneotodak/siti-v2/pull/58">siti-v2&nbsp;PR&nbsp;#58</a> · 360/360 tests pass</div>
     </div>
     <div class="status">✓ DONE</div>
   </article>
 
-  <!-- Phase 4a -->
-  <article class="phase done">
-    <div class="num">4a</div>
+  <article class="refactor-phase done">
+    <div class="pnum">4a</div>
     <div class="body">
       <h3>Router engine (abstract)</h3>
-      <p>The classify orchestrator + LLM tiebreak lifted to <code>@naca/router</code> as an <em>injectable</em> engine. Caller provides the rule set, sender-tier lookup, and system prompt — engine itself knows nothing about WhatsApp or Siti. <em>Phase 4 was split into 4a (engine, done) and 4b (rules + permissions + 8 specialists, pending) when the specialists turned out to be heavily WhatsApp-coupled.</em></p>
-      <div class="meta">
-        <a href="https://github.com/broneotodak/naca/pull/7">naca&nbsp;PR&nbsp;#7</a>
-        <a href="https://github.com/broneotodak/siti-v2/pull/59">siti-v2&nbsp;PR&nbsp;#59</a>
-        95/95 + 360/360 tests pass
-      </div>
+      <p>The classify orchestrator + LLM tiebreak lifted to <code>@naca/router</code> as an <em>injectable</em> engine. Caller provides the rule set, sender-tier lookup, and system prompt — engine itself knows nothing about WhatsApp or Siti. <em>Phase 4 was split into 4a (engine, done) and 4b (rules + permissions + 8 specialists, no-op) when the specialists turned out to be heavily WhatsApp-coupled.</em></p>
+      <div class="meta"><a href="https://github.com/broneotodak/naca/pull/7">naca&nbsp;PR&nbsp;#7</a> · <a href="https://github.com/broneotodak/siti-v2/pull/59">siti-v2&nbsp;PR&nbsp;#59</a> · 95/95 + 360/360 tests pass</div>
     </div>
     <div class="status">✓ DONE</div>
   </article>
 
-  <!-- Phase 4b -->
-  <article class="phase done">
-    <div class="num">4b</div>
+  <article class="refactor-phase done">
+    <div class="pnum">4b</div>
     <div class="body">
       <h3>Router rules + permissions + specialists — closed as no-op</h3>
-      <p>Original plan was to lift <code>rules.js</code>, <code>permissions.js</code>, and 8 specialists out of siti-v2 into <code>@naca/router</code>. <em>Same outcome as Phase 2b: the premise didn't hold on inspection.</em> Rule definitions are WhatsApp/BM-English text patterns (other interfaces don't have natural-language input). Permissions queries the WA-operational <code>contacts</code> table with JID normalization (naca-app uses mobile user IDs; MCP uses bearer tokens). Specialist business logic differs per interface (CHAT for WA ≠ CHAT for mobile ≠ CHAT for MCP). siti-v2's rules/permissions/specialists are correctly the WhatsApp adapter consuming the engine that <strong>Phase 4a already lifted</strong>. Future interfaces build their own adapters on the same engine. <strong>Closed as no-op.</strong></p>
-      <div class="meta">
-        <a href="https://github.com/broneotodak/naca/pull/12">naca&nbsp;PR&nbsp;#12</a>
-        spec closure entry
-      </div>
+      <p>Original plan was to lift <code>rules.js</code>, <code>permissions.js</code>, and 8 specialists out of siti-v2 into <code>@naca/router</code>. <em>Same outcome as Phase 2b: the premise didn't hold on inspection.</em> Rule definitions are WhatsApp/BM-English text patterns (other interfaces don't have natural-language input). Permissions queries the WA-operational <code>contacts</code> table with JID normalization (naca-app uses mobile user IDs; MCP uses bearer tokens). Specialist business logic differs per interface. siti-v2's rules/permissions/specialists are correctly the WhatsApp adapter consuming the engine that <strong>Phase 4a already lifted</strong>. Future interfaces build their own adapters on the same engine. <strong>Closed as no-op.</strong></p>
+      <div class="meta"><a href="https://github.com/broneotodak/naca/pull/12">naca&nbsp;PR&nbsp;#12</a> · spec closure entry</div>
     </div>
     <div class="status">✓ DONE</div>
   </article>
 
-  <!-- Phase 5 -->
-  <article class="phase done">
-    <div class="num">5</div>
+  <article class="refactor-phase done">
+    <div class="pnum">5</div>
     <div class="body">
       <h3>siti-v2 <code>src/interface/</code> reorg</h3>
       <p>Moved the WhatsApp-specific bits into a dedicated <code>src/interface/</code> directory so the boundary is obvious. <code>cycle.js</code>, <code>envelope.js</code>, <code>sources.js</code>, <code>gemini-prompts.js</code>, <code>outbound-bridge.js</code>, and the entire <code>send/</code> directory (incl. wacli transports) moved via <code>git mv</code>; history preserved. <code>src/router/</code>, <code>src/dispatcher/</code>, <code>src/daemon/</code> (now just deployer + dispatch-deps) stay put. CLAUDE.md gained a "Repository layout" section documenting where each piece lives. No behaviour change — 360/360 tests pass; siti-router restarted clean post-deploy.</p>
-      <div class="meta">
-        <a href="https://github.com/broneotodak/siti-v2/pull/60">siti-v2&nbsp;PR&nbsp;#60</a>
-        commit <code>bcad2e2</code>
-      </div>
+      <div class="meta"><a href="https://github.com/broneotodak/siti-v2/pull/60">siti-v2&nbsp;PR&nbsp;#60</a> · commit <code>bcad2e2</code></div>
     </div>
     <div class="status">✓ DONE</div>
   </article>
 
-  <!-- Phase 6 -->
-  <article class="phase done">
-    <div class="num">6</div>
+  <article class="refactor-phase done">
+    <div class="pnum">6</div>
     <div class="body">
-      <h3>Documentations page</h3>
-      <p>You're reading it. Visual progress tracker for the refactor so we can see where we are without digging through PRs and memories. Replaces <code>presentation.neotodak.com/naca-overview.html</code> for refactor status. Lives in the <code>naca-app</code> repo at <code>web/documentations.html</code>.</p>
-      <div class="meta">
-        <a href="https://github.com/broneotodak/naca-app/pull/15">naca-app&nbsp;PR&nbsp;#15</a>
-        served at <code>naca.neotodak.com/documentations.html</code>
-      </div>
+      <h3>Documentation consolidated to <code>naca.neotodak.com/documentations.html</code></h3>
+      <p>You're reading the result. Visual progress tracker for the refactor + the operator overview, merged into one page at the canonical <code>naca.neotodak.com</code> domain. Replaces <code>presentation.neotodak.com/naca-overview.html</code> (deleted in this consolidation) and the three old "Agentic Ecosystem" decks (already redirect stubs). Lives in the <code>naca-app</code> repo at <code>web/documentations.html</code> — Flutter web build picks it up as a static file, auto-deploys via GitHub Actions on merge.</p>
+      <div class="meta"><a href="https://github.com/broneotodak/naca-app/pull/15">naca-app&nbsp;PR&nbsp;#15</a> (initial) + consolidation PR · served at <code>naca.neotodak.com/documentations.html</code></div>
     </div>
     <div class="status">✓ DONE</div>
   </article>
 
-  <!-- Phase 7 -->
-  <article class="phase done">
-    <div class="num">7</div>
+  <article class="refactor-phase done">
+    <div class="pnum">7</div>
     <div class="body">
       <h3>NACA MCP bridge (stdio + HTTP+SSE)</h3>
       <p>New repo <a href="https://github.com/broneotodak/naca-mcp-bridge"><code>broneotodak/naca-mcp-bridge</code></a>. Exposes 15 envelope-free <code>@naca/tools</code> over MCP — both <strong>stdio</strong> (Phase 7, local Claude Code subprocess) and <strong>HTTP+SSE</strong> (Phase 7b, remote tailnet access). State/web/workspace tools available: <code>recall</code>, <code>lookup_resource</code>, <code>read_url</code>, <code>web_search</code>, <code>time_now</code>, <code>gmail_*</code>, <code>drive_search/read</code>, <code>calendar_*</code>, <code>check_agent_status</code>, <code>list_media</code>, <code>search_person</code>, <code>get_person_facts</code>. Wire into Claude Code via <code>~/.claude.json</code> <code>mcpServers</code> block — see repo README.</p>
       <p><strong>Phase 7b shipped 2026-05-11:</strong> <code>bin/mcp-bridge-http.js</code> wraps MCP SDK's <code>StreamableHTTPServerTransport</code>; bearer-token auth in <code>src/auth.js</code> reads the expected token from <code>credentials_vault</code> via <code>@naca/core</code> <code>getCredential</code> (constant-time compare). Deployed under pm2 (<code>naca-mcp-bridge-http</code>) on Hetzner <code>openclaw</code>, bound to the tailscale interface only — no public network exposure. Token-to-tier mapping deferred until there's an actual non-owner caller.</p>
-      <div class="meta">
-        <a href="https://github.com/broneotodak/naca-mcp-bridge">naca-mcp-bridge</a>
-        Phase 7 MVP + Phase 7b
-        17/17 tests pass
-      </div>
+      <div class="meta"><a href="https://github.com/broneotodak/naca-mcp-bridge">naca-mcp-bridge</a> · Phase 7 MVP + Phase 7b · 17/17 tests pass</div>
     </div>
     <div class="status">✓ DONE</div>
   </article>
 
-  <!-- Phase 8 -->
-  <article class="phase done">
-    <div class="num">8</div>
+  <article class="refactor-phase done">
+    <div class="pnum">8</div>
     <div class="body">
       <h3>Process re-hosting</h3>
       <p>Shipped 2026-05-11. LLM-heavy agents moved from Hetzner to <strong>tr-home</strong> (Threadripper 7970X / 64GB / RX 7900 XTX, tailnet <code>100.126.89.7</code>) via hard cutover: <code>reviewer-agent</code>, <code>planner-agent</code>, <code>dev-agent</code>. Each now runs under pm2 on tr-home with <code>pm2 save</code> + a <code>pm2-neo</code> systemd unit so they survive reboot. Anthropic API is still the LLM backend; Ollama (qwen2.5:32b already loaded on the box) is a future-flexibility option, not wired this sprint.</p>
       <p><strong>Stays on Hetzner (intentional):</strong> <code>siti-router</code>, <code>siti-ingest</code>, <code>naca-backend</code>, <code>naca-mcp-bridge-http</code>, <code>deployer-agent</code>, <code>face-service</code> — all network-facing (WA gateway, HTTP APIs, MCP bridge) or host-locally coupled (deployer SSH-deploys Hetzner pm2 processes).</p>
-      <div class="meta">
-        <a href="https://github.com/broneotodak/naca/pull/16">naca PR #16</a>
-        Hetzner pm2 left stopped (not deleted) for 24h rollback safety net
-      </div>
+      <div class="meta"><a href="https://github.com/broneotodak/naca/pull/16">naca PR #16</a> · Hetzner pm2 left stopped (not deleted) for 24h rollback safety net</div>
     </div>
     <div class="status">✓ DONE</div>
   </article>
 
-  <!-- Glossary -->
-  <section class="section">
+  <!-- ===== GLOSSARY ===== -->
+  <div class="section" id="glossary">
     <h2>Glossary</h2>
-    <div class="sublabel">Names that matter</div>
-  </section>
-  <dl class="glossary">
+    <p>Names that matter — drop-in reference if any term above was unfamiliar.</p>
+  </div>
+  <dl class="glossary-list">
     <dt>NACA</dt>
     <dd>Neo's Agentic Centre Applications. The whole platform.</dd>
     <dt>@naca/core</dt>
@@ -527,16 +1588,255 @@ footer a:hover { color: var(--cyan); }
     <dd>Intent classifier engine + LLM tiebreak. Knows nothing about WhatsApp.</dd>
     <dt>siti-v2</dt>
     <dd>The WhatsApp interface. Now imports @naca/core + @naca/router + @naca/tools instead of carrying its own copies.</dd>
+    <dt>siti-router</dt>
+    <dd>The active "Siti v2" pm2 process on Hetzner. Replaces the old monolithic <code>siti</code> agent. Owns the outbound bridge that delivers <code>agent_commands(to_agent='siti')</code> to WhatsApp.</dd>
+    <dt>siti-ingest</dt>
+    <dd>WhatsApp inbound bridge — wacli + the <code>/send</code> HTTP API on port 3501.</dd>
+    <dt>naca-mcp-bridge</dt>
+    <dd>MCP server exposing 15 <code>@naca/tools</code> to Claude Code sessions. Two transports: stdio (local subprocess) and HTTP+SSE (remote tailnet, bearer-auth).</dd>
     <dt>Interface</dt>
-    <dd>Any app that uses NACA. Currently siti-v2 (WhatsApp). Soon naca-app (mobile), naca-mcp-bridge (Claude Code).</dd>
+    <dd>Any app that uses NACA. Currently siti-v2 (WhatsApp), naca-app (mobile/web), naca-mcp-bridge (Claude Code).</dd>
     <dt>neo-brain</dt>
     <dd>The Supabase project (<code>xsunmervpyrplzarebva</code>) that holds memory, contacts, agent state. Accessed via <code>@todak/memory</code> SDK (lives in CTK, not NACA).</dd>
+    <dt>CTK</dt>
+    <dd><code>claude-tools-kit</code> — shared toolbox repo for every Claude Code session and agent. Holds <code>WORKFLOW.md</code>, <code>save-memory.js</code>, the <code>@todak/memory</code> SDK source, and per-host focus prompts.</dd>
+    <dt>tr-home</dt>
+    <dd>Threadripper 7970X / 64GB / RX 7900 XTX at Neo's home (tailnet <code>100.126.89.7</code>). Hosts the LLM-heavy agents post-Phase-8 plus Phase 6's local-LLM fine-tuning rig.</dd>
+    <dt>Phase 8</dt>
+    <dd>The process re-hosting sprint — moved <code>reviewer-agent</code>, <code>planner-agent</code>, <code>dev-agent</code> from the Hetzner VPS to <code>tr-home</code> on 2026-05-11 via hard cutover. Out of platform-refactor scope but tracked alongside it.</dd>
   </dl>
 
-  <footer>
-    naca-app · documentations · spec at <a href="https://github.com/broneotodak/naca/blob/main/docs/spec/platform-refactor-v1.md">github.com/broneotodak/naca/docs/spec</a>
-  </footer>
-</main>
+  <div class="foot">
+    Built by Neo Todak (broneotodak) · Cyberjaya, Malaysia<br/>
+    Powered by Claude Sonnet/Opus + Gemini 2.5 Flash + neo-brain (Supabase + pgVector)
+  </div>
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'dark',
+    themeVariables: {
+      primaryColor: '#1e293b',
+      primaryTextColor: '#e0e0e0',
+      primaryBorderColor: '#06b6d4',
+      lineColor: '#475569',
+      secondaryColor: '#0f172a',
+      tertiaryColor: '#334155',
+      background: '#0a0a0f',
+      mainBkg: '#1e293b',
+      fontSize: '13px',
+    },
+    flowchart: { curve: 'basis', padding: 20 },
+    sequence: { actorMargin: 50, boxMargin: 10 },
+  });
+</script>
+
+<script>
+const NEO_BRAIN_URL = 'https://xsunmervpyrplzarebva.supabase.co';
+// Publishable key — read-only, scoped by RLS, safe to embed.
+const NEO_BRAIN_ANON = 'sb_publishable_RU6YMJ8MGEgci2ncNR6J7Q_r-mfY9TI';
+
+const sb = window.supabase.createClient(NEO_BRAIN_URL, NEO_BRAIN_ANON, {
+  auth: { persistSession: false }
+});
+
+// Static metadata — paired with live heartbeats from the DB.
+// Agent roster is now sourced from neo-brain `agent_registry` table.
+// Schema: agent_name, display_name, emoji, role_description, host, agent_type,
+// expected_tool_count, status, meta. Refactored 2026-05-01 (Phase 5 Step 4).
+
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({
+  '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+}[c]));
+
+const fmtAge = iso => {
+  const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return s + 's ago';
+  if (s < 3600) return Math.round(s/60) + 'm ago';
+  if (s < 86400) return Math.round(s/3600) + 'h ago';
+  return Math.round(s/86400) + 'd ago';
+};
+
+// ── live agent roster (sourced from agent_registry) ─────────
+async function refreshAgents() {
+  const [regRes, hbRes] = await Promise.all([
+    sb.from('agent_registry').select('*').neq('status','archived')
+      .order('agent_type', { ascending: true })
+      .order('agent_name', { ascending: true }),
+    sb.from('agent_heartbeats').select('agent_name,status,reported_at,meta')
+  ]);
+  if (regRes.error) throw regRes.error;
+  if (hbRes.error) throw hbRes.error;
+
+  // Heartbeat lookup: also resolve via meta.alt_names so e.g. "reviewer-agent"
+  // heartbeats map to the canonical "reviewer" registry row when needed.
+  const hbByName = {};
+  for (const r of (hbRes.data || [])) hbByName[r.agent_name] = r;
+
+  document.getElementById('agentGrid').innerHTML = (regRes.data || []).map(r => {
+    let hb = hbByName[r.agent_name];
+    if (!hb && Array.isArray(r.meta?.alt_names)) {
+      for (const alt of r.meta.alt_names) { if (hbByName[alt]) { hb = hbByName[alt]; break; } }
+    }
+
+    let liveStatus = r.status === 'offline' ? 'offline' : 'unknown';
+    if (r.agent_type === 'physical') liveStatus = 'unknown';
+    if (hb) {
+      const stale = Math.round((Date.now() - new Date(hb.reported_at).getTime()) / 1000);
+      if (stale > 600) liveStatus = 'offline';
+      else if (hb.status === 'ok') liveStatus = 'live';
+      else if (hb.status === 'degraded') liveStatus = 'degraded';
+      else liveStatus = 'offline';
+    }
+    const tools = r.expected_tool_count ? ` · ${r.expected_tool_count} tools` : '';
+    return `
+      <div class="agent-card ${liveStatus}">
+        <div class="head">
+          <span class="emoji">${r.emoji || '🤖'}</span>
+          <span class="name">${esc(r.agent_name)}</span>
+          <span class="dot ${liveStatus}"></span>
+        </div>
+        <div class="role">${esc(r.role_description || '')}${tools}</div>
+        <div class="meta">
+          <span>🖥 ${esc(r.host || '?')}</span>
+          ${hb ? `<span>${fmtAge(hb.reported_at)}</span>`
+                : `<span>${r.agent_type === 'physical' ? 'physical · no heartbeat' : 'no heartbeat'}</span>`}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// ── milestone progress (TPC-style) ───────────────────────────
+async function refreshMilestones() {
+  const { data, error } = await sb.from('naca_milestones')
+    .select('*').order('phase_order', { ascending: true }).order('step_order', { ascending: true });
+  if (error) throw error;
+
+  // Group by phase_code
+  const phasesMap = new Map();
+  for (const row of data) {
+    if (!phasesMap.has(row.phase_code)) phasesMap.set(row.phase_code, { header: null, items: [] });
+    if (row.kind === 'phase') phasesMap.get(row.phase_code).header = row;
+    else phasesMap.get(row.phase_code).items.push(row);
+  }
+  const phases = Array.from(phasesMap.values()).sort(
+    (a, b) => (a.header?.phase_order ?? 99) - (b.header?.phase_order ?? 99)
+  );
+
+  // Aggregate stats
+  const totalPhases = phases.length;
+  const donePhases = phases.filter(p => p.header?.phase_status === 'done').length;
+  let totalItems = 0, doneItems = 0;
+  for (const p of phases) {
+    totalItems += p.items.length;
+    doneItems += p.items.filter(it => it.item_status === 'done').length;
+  }
+  const overallPct = totalItems ? Math.round((doneItems / totalItems) * 100) : 0;
+
+  document.getElementById('milestoneSubtitle').textContent =
+    `NACA · ${totalPhases} phases, ${totalItems} items · live from neo-brain`;
+  document.getElementById('overallPercent').textContent = overallPct + '%';
+  document.getElementById('phasesDoneNum').textContent = donePhases;
+  document.getElementById('phasesTotalNum').textContent = totalPhases;
+  document.getElementById('itemsDoneNum').textContent = doneItems;
+  document.getElementById('itemsTotalNum').textContent = totalItems;
+  document.getElementById('overallFill').style.width = overallPct + '%';
+
+  // Phase stepper
+  document.getElementById('phaseStepper').innerHTML = phases.map((p, i) => {
+    const h = p.header; if (!h) return '';
+    const cls = h.phase_status === 'done' ? 'done'
+              : h.phase_status === 'partial' ? 'partial'
+              : h.phase_status === 'new' ? 'new' : '';
+    const icon = h.phase_status === 'done' ? '✓' : (h.phase_pill_label?.replace(/PHASE\s*/i,'').trim() || '');
+    const arrow = i < phases.length - 1 ? '<span class="phase-step-arrow">→</span>' : '';
+    return `<div class="phase-step">
+      <div class="phase-step-circle ${cls}" title="${esc(h.phase_label)}">${esc(icon)}</div>
+      ${arrow}
+    </div>`;
+  }).join('');
+
+  // Per-phase cards
+  document.getElementById('milestoneList').innerHTML = phases.map(p => {
+    const h = p.header; if (!h) return '';
+    const items = p.items;
+    const itemsDone = items.filter(it => it.item_status === 'done').length;
+    const itemsTotal = items.length;
+    const phasePct = itemsTotal ? Math.round((itemsDone / itemsTotal) * 100) : 0;
+    const cls = h.phase_status;
+    const badgeText = cls === 'done' ? 'Complete'
+                    : cls === 'partial' ? 'In Progress'
+                    : cls === 'new' ? 'New · ' + (h.phase_status_label || '')
+                    : 'Planned';
+    const iconChar = cls === 'done' ? '✓' : cls === 'partial' ? '◔' : cls === 'new' ? '✦' : '○';
+    return `
+      <div class="milestone-card ${cls}">
+        <div class="milestone-badge ${cls}">${esc(badgeText)}</div>
+        <div class="milestone-header">
+          <div class="milestone-status-icon ${cls}">${iconChar}</div>
+          <div class="milestone-titles">
+            <h3>${esc(h.phase_label)}</h3>
+            <div class="desc">${esc(h.phase_desc || '')}</div>
+          </div>
+        </div>
+        <div class="milestone-progress-row">
+          <div class="milestone-progress-bar"><div class="fill ${cls === 'done' ? '' : cls}" style="width:${phasePct}%"></div></div>
+          <div class="milestone-count">${itemsDone}/${itemsTotal}</div>
+        </div>
+        <div class="item-grid">
+          ${items.map(it => `
+            <div class="item-row ${esc(it.item_status || 'todo')}">
+              <span class="item-check">${esc(it.item_icon || '•')}</span>
+              <span class="item-text">${esc(it.title)}${it.tag ? `<span class="item-tag">${esc(it.tag)}</span>` : ''}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// ── orchestrator ─────────────────────────────────────────────
+async function refresh() {
+  try {
+    await Promise.all([refreshAgents(), refreshMilestones()]);
+    const ts = 'live · ' + new Date().toLocaleTimeString();
+    document.getElementById('livePillText').textContent = ts;
+    document.getElementById('livePill').classList.remove('error');
+    const mini = document.getElementById('livePillMiniText');
+    if (mini) mini.textContent = '🟢 ' + ts;
+  } catch (e) {
+    console.error(e);
+    document.getElementById('livePillText').textContent = 'connection error';
+    document.getElementById('livePill').classList.add('error');
+    const mini = document.getElementById('livePillMiniText');
+    if (mini) mini.textContent = '🔴 connection error';
+  }
+}
+
+// ── Active-section highlight in sidebar (IntersectionObserver) ─────
+function setupSidebarHighlight() {
+  const links = Array.from(document.querySelectorAll('.sidebar a[href^="#"]'));
+  const sections = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+  if (!sections.length) return;
+  const observer = new IntersectionObserver((entries) => {
+    // Pick the entry closest to the top of the viewport that's intersecting.
+    const visible = entries.filter(e => e.isIntersecting).sort((a,b) => a.boundingClientRect.top - b.boundingClientRect.top);
+    if (!visible.length) return;
+    const id = visible[0].target.id;
+    for (const a of links) {
+      a.classList.toggle('active', a.getAttribute('href') === '#' + id);
+    }
+  }, { rootMargin: '-20% 0px -60% 0px', threshold: 0 });
+  for (const s of sections) observer.observe(s);
+}
+setupSidebarHighlight();
+
+refresh();
+setInterval(refresh, 30000);
+</script>
 
 </body>
 </html>
