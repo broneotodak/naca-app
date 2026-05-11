@@ -300,19 +300,19 @@ footer a:hover { color: var(--cyan); }
   <!-- Progress meter -->
   <section class="progress-card">
     <div class="progress-stats">
-      <div class="stat"><span class="num done">5</span><span class="label">Done</span></div>
-      <div class="stat"><span class="num now">1</span><span class="label">In&nbsp;progress</span></div>
+      <div class="stat"><span class="num done">6</span><span class="label">Done</span></div>
       <div class="stat"><span class="num next">1</span><span class="label">Next&nbsp;up</span></div>
-      <div class="stat"><span class="num parked">4</span><span class="label">Parked</span></div>
+      <div class="stat"><span class="num parked">4</span><span class="label">Pending</span></div>
+      <div class="stat"><span class="num" style="color:#9ca3af">11</span><span class="label">Total</span></div>
     </div>
-    <div class="progress-bar"><div class="progress-fill" style="width:50%"></div></div>
-    <div class="progress-pct">5 of 10 phases shipped · ~50% complete</div>
+    <div class="progress-bar"><div class="progress-fill" style="width:55%"></div></div>
+    <div class="progress-pct">6 of 11 phases shipped · ~55% complete</div>
   </section>
 
-  <!-- Numbering apology -->
+  <!-- Numbering note -->
   <div class="callout">
     <h4>About the numbering</h4>
-    <p>Earlier versions of the plan had numbering like "Phase 2b" and "Phase 4a/4b" that got confusing. <strong>This page uses a clean flat numbering 1–10.</strong> The internal spec at <code>docs/spec/platform-refactor-v1.md</code> keeps the historical labels for traceability, but use this page as the source of truth for "where are we."</p>
+    <p>Numbering matches the spec exactly: <a href="https://github.com/broneotodak/naca/blob/main/docs/spec/platform-refactor-v1.md" style="color:var(--cyan)">docs/spec/platform-refactor-v1.md</a>. Sub-labels like <code>2b</code> and <code>4a / 4b</code> exist because the plan evolved mid-refactor — Phase 2 swapped with Phase 3 (tools depend on core, so core had to go first); Phase 4 split into <code>4a</code> (the abstract engine, done) and <code>4b</code> (de-Siti of rules + permissions + 8 specialists, pending) once we saw how WhatsApp-coupled the specialists are. Both spec doc and this page now agree.</p>
   </div>
 
   <!-- Why -->
@@ -345,7 +345,7 @@ footer a:hover { color: var(--cyan); }
   Flutter cross-platform · reads neo-brain via REST
 
 <span class="repo">broneotodak/naca-mcp-bridge</span>               ← Future: Claude Code MCP server
-  <span class="note">(planned — Phase 9)</span>
+  <span class="note">(planned — Phase 7)</span>
   </pre>
 
   <!-- Phase tracker -->
@@ -354,7 +354,18 @@ footer a:hover { color: var(--cyan); }
     <div class="sublabel">Top to bottom: shipped → in flight → next → parked</div>
   </section>
 
-  <!-- 1 -->
+  <!-- Phase 0 -->
+  <article class="phase done">
+    <div class="num">0</div>
+    <div class="body">
+      <h3>Spec lock</h3>
+      <p>Locked the refactor plan: created <code>broneotodak/naca</code> repo (private, MIT), committed the spec doc, archived April 22 planning docs, tagged <code>siti-v2</code> at <code>pre-refactor</code> as the rollback anchor.</p>
+      <div class="meta">2026-05-11 · spec doc + repo + rollback anchor</div>
+    </div>
+    <div class="status">✓ DONE</div>
+  </article>
+
+  <!-- Phase 1 -->
   <article class="phase done">
     <div class="num">1</div>
     <div class="body">
@@ -368,22 +379,33 @@ footer a:hover { color: var(--cyan); }
     <div class="status">✓ DONE</div>
   </article>
 
-  <!-- 2 -->
+  <!-- Phase 2 -->
   <article class="phase done">
     <div class="num">2</div>
     <div class="body">
       <h3>Extract <code>@naca/core</code> (shared kernel)</h3>
-      <p>Lifted siti-v2's daemon kernel into <code>@naca/core</code>: PostgREST wrapper, heartbeat publisher, Gemini clients, Google OAuth, abstract <code>SendModule</code>. Added a new <code>vault.js</code> helper that consolidates credential reads through one audit boundary.</p>
+      <p>Lifted siti-v2's daemon kernel into <code>@naca/core</code>: PostgREST wrapper, heartbeat publisher, Gemini clients, Google OAuth, abstract <code>SendModule</code>. Added a new <code>vault.js</code> helper that consolidates credential reads through one audit boundary. <em>Originally numbered Phase 3 in the spec; swapped with the tools extraction because tools depend on core.</em></p>
       <div class="meta">
         <a href="https://github.com/broneotodak/naca/pull/3">naca&nbsp;PR&nbsp;#3</a>
         <a href="https://github.com/broneotodak/siti-v2/pull/57">siti-v2&nbsp;PR&nbsp;#57</a>
-        siti-v2 rewired · 440/440 tests pass
+        440/440 tests pass
       </div>
     </div>
     <div class="status">✓ DONE</div>
   </article>
 
-  <!-- 3 -->
+  <!-- Phase 2b -->
+  <article class="phase next">
+    <div class="num">2b</div>
+    <div class="body">
+      <h3>Rewire the other fleet agents to <code>@naca/core</code></h3>
+      <p>Five agents currently still carry their own copies of the kernel code: <strong>dev-agent</strong>, <strong>planner-agent</strong>, <strong>reviewer-agent</strong>, <strong>deployer-agent</strong>, <strong>naca-backend</strong>. Each gets a small PR: add <code>@naca/core</code> as a file dep, change a few import paths, delete the duplicated daemon files. Low risk, mechanical. <em>Phase 2b sub-label because it completes the core-extraction work for the rest of the fleet.</em></p>
+      <div class="meta">~2h · 5 repos · separate PRs per repo</div>
+    </div>
+    <div class="status">▶ NEXT</div>
+  </article>
+
+  <!-- Phase 3 -->
   <article class="phase done">
     <div class="num">3</div>
     <div class="body">
@@ -392,18 +414,18 @@ footer a:hover { color: var(--cyan); }
       <div class="meta">
         <a href="https://github.com/broneotodak/naca/pull/5">naca&nbsp;PR&nbsp;#5</a>
         <a href="https://github.com/broneotodak/siti-v2/pull/58">siti-v2&nbsp;PR&nbsp;#58</a>
-        siti-v2 rewired · 360/360 tests pass
+        360/360 tests pass
       </div>
     </div>
     <div class="status">✓ DONE</div>
   </article>
 
-  <!-- 4 -->
+  <!-- Phase 4a -->
   <article class="phase done">
-    <div class="num">4</div>
+    <div class="num">4a</div>
     <div class="body">
       <h3>Router engine (abstract)</h3>
-      <p>The classify orchestrator + LLM tiebreak lifted to <code>@naca/router</code> as an <em>injectable</em> engine. Caller provides the rule set, sender-tier lookup, and system prompt — engine itself knows nothing about WhatsApp or Siti.</p>
+      <p>The classify orchestrator + LLM tiebreak lifted to <code>@naca/router</code> as an <em>injectable</em> engine. Caller provides the rule set, sender-tier lookup, and system prompt — engine itself knows nothing about WhatsApp or Siti. <em>Phase 4 was split into 4a (engine, done) and 4b (rules + permissions + 8 specialists, pending) when the specialists turned out to be heavily WhatsApp-coupled.</em></p>
       <div class="meta">
         <a href="https://github.com/broneotodak/naca/pull/7">naca&nbsp;PR&nbsp;#7</a>
         <a href="https://github.com/broneotodak/siti-v2/pull/59">siti-v2&nbsp;PR&nbsp;#59</a>
@@ -413,70 +435,62 @@ footer a:hover { color: var(--cyan); }
     <div class="status">✓ DONE</div>
   </article>
 
-  <!-- 5 -->
-  <article class="phase now">
+  <!-- Phase 4b -->
+  <article class="phase parked">
+    <div class="num">4b</div>
+    <div class="body">
+      <h3>De-Siti the router rules + permissions + 8 specialists</h3>
+      <p>Today's rules hardcode Siti's WhatsApp identifiers, permissions hardcode Neo's WA JID, specialists embed "You are Siti…" persona prompts and reference WhatsApp-specific envelope fields (<code>envelope.metadata.wa_message_id</code>). Lifting them to <code>@naca/router</code> needs proper IoC + an interface envelope contract — a bigger refactor than the previous phases. Verdict + reminder + task specialists are safety-critical (they merge PRs, fire reminders, decompose tasks), so this deserves a fresh focused session.</p>
+      <div class="meta">~6-10h · biggest single remaining piece · two sub-PRs (rules+permissions, then specialists)</div>
+    </div>
+    <div class="status">▢ PENDING</div>
+  </article>
+
+  <!-- Phase 5 -->
+  <article class="phase parked">
     <div class="num">5</div>
     <div class="body">
-      <h3>This documentations page</h3>
-      <p>You're reading it. Visual progress tracker for the refactor so we can see where we are without digging through PRs and memories. Replaces <code>presentation.neotodak.com/naca-overview.html</code> for refactor status.</p>
-      <div class="meta">naca-app · static page · live at <code>naca.neotodak.com/documentations.html</code></div>
+      <h3>siti-v2 slim-down to <code>src/interface/</code></h3>
+      <p>After Phase 4b, siti-v2 reorganises so all remaining code is unambiguously interface-only: the daemon loop, source-specific envelope mappers, WhatsApp wiring. Updates siti-v2's CLAUDE.md to enforce the new boundary.</p>
+      <div class="meta">~2h · depends on Phase 4b</div>
     </div>
-    <div class="status">● IN&nbsp;PROGRESS</div>
+    <div class="status">▢ PENDING</div>
   </article>
 
-  <!-- 6 -->
-  <article class="phase next">
+  <!-- Phase 6 -->
+  <article class="phase done">
     <div class="num">6</div>
     <div class="body">
-      <h3>Rewire the other fleet agents to <code>@naca/core</code></h3>
-      <p>Five agents currently still carry their own copies of the kernel code: <strong>dev-agent</strong>, <strong>planner-agent</strong>, <strong>reviewer-agent</strong>, <strong>deployer-agent</strong>, <strong>naca-backend</strong>. Each gets a small PR: add <code>@naca/core</code> as a file dep, change a few import paths, delete the duplicated daemon files. Low risk, mechanical.</p>
-      <div class="meta">~2h · 5 repos · separate PRs per repo</div>
+      <h3>Documentations page</h3>
+      <p>You're reading it. Visual progress tracker for the refactor so we can see where we are without digging through PRs and memories. Replaces <code>presentation.neotodak.com/naca-overview.html</code> for refactor status. Lives in the <code>naca-app</code> repo at <code>web/documentations.html</code>.</p>
+      <div class="meta">
+        <a href="https://github.com/broneotodak/naca-app/pull/15">naca-app&nbsp;PR&nbsp;#15</a>
+        served at <code>naca.neotodak.com/documentations.html</code>
+      </div>
     </div>
-    <div class="status">▶ NEXT</div>
+    <div class="status">✓ DONE</div>
   </article>
 
-  <!-- 7 -->
+  <!-- Phase 7 -->
   <article class="phase parked">
     <div class="num">7</div>
     <div class="body">
-      <h3>De-Siti the router rules + permissions + 8 specialists</h3>
-      <p>Today's rules hardcode Siti's WhatsApp identifiers, permissions hardcode Neo's WA JID, specialists embed "You are Siti…" persona prompts and reference WhatsApp-specific envelope fields. Lifting them to <code>@naca/router</code> needs proper IoC + an interface envelope contract — a bigger refactor than the previous phases. Verdict + reminder + task specialists are safety-critical (they merge PRs, fire reminders, decompose tasks), so this deserves a fresh focused session.</p>
-      <div class="meta">~6-10h · biggest single remaining piece · split into rules/permissions PR + specialists PR</div>
-    </div>
-    <div class="status">▢ PARKED</div>
-  </article>
-
-  <!-- 8 -->
-  <article class="phase parked">
-    <div class="num">8</div>
-    <div class="body">
-      <h3>siti-v2 slim-down to <code>src/interface/</code></h3>
-      <p>After Phase 7, siti-v2 reorganises so all remaining code is unambiguously interface-only: the daemon loop, source-specific envelope mappers, WhatsApp wiring. Updates siti-v2's CLAUDE.md to enforce the new boundary.</p>
-      <div class="meta">~2h · depends on Phase 7</div>
-    </div>
-    <div class="status">▢ PARKED</div>
-  </article>
-
-  <!-- 9 -->
-  <article class="phase parked">
-    <div class="num">9</div>
-    <div class="body">
       <h3>NACA MCP bridge</h3>
-      <p>New repo <code>broneotodak/naca-mcp-bridge</code>. Exposes <code>@naca/tools</code> over MCP (HTTP + SSE) so Claude Code sessions can call the same capabilities Siti uses. Auth via Bearer token from the neo-brain vault.</p>
+      <p>New repo <code>broneotodak/naca-mcp-bridge</code>. Exposes <code>@naca/tools</code> over MCP (HTTP + SSE) so Claude Code sessions can call the same capabilities Siti uses. Auth via Bearer token from the neo-brain vault. Open-tier tools available by default; owner-only require additional gate.</p>
       <div class="meta">~3h · new repo · pm2 process</div>
     </div>
-    <div class="status">▢ PARKED</div>
+    <div class="status">▢ PENDING</div>
   </article>
 
-  <!-- 10 -->
+  <!-- Phase 8 -->
   <article class="phase parked">
-    <div class="num">10</div>
+    <div class="num">8</div>
     <div class="body">
       <h3>Process re-hosting</h3>
       <p>Separate sprint. Reconsider where each agent runs based on the machine's strengths, not where things already live. LLM-heavy agents (planner, reviewer, dev) move to <strong>tr-home</strong> (64GB + 7900 XTX GPU). Network-facing-only agents stay on Hetzner. Out of platform-refactor scope but tracked here for context.</p>
       <div class="meta">Sprint TBD · not part of the refactor itself</div>
     </div>
-    <div class="status">▢ PARKED</div>
+    <div class="status">▢ PENDING</div>
   </article>
 
   <!-- Glossary -->
