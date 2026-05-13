@@ -366,13 +366,16 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
   <div class="nav-section-label">↓ Refactor v1</div>
   <a href="#refactor">Platform refactor</a>
+
+  <div class="nav-section-label">↓ Core v2</div>
+  <a href="#registry-driven">🧬 Registry-driven core</a>
   <a href="#glossary">Glossary</a>
 
   <div class="live-pill-mini" id="livePillMini"><span id="livePillMiniText">connecting…</span></div>
 </nav>
 
 <div class="header">
-  <div class="badge">● live · auto-refresh 30s · platform refactor v1 · 100%</div>
+  <div class="badge">● live · auto-refresh 30s · platform refactor v1 · 100% · registry-driven core v2 · 1/7</div>
   <h1>NACA</h1>
   <div class="tagline">
     <strong>Neo's Agentic Centre Applications</strong> — a personal AI-agent fleet running across Macs, VPSes, an office NAS, and a home Threadripper, coordinated by one neural memory and one operator (Neo). Operator overview above; platform-refactor engineering progress at the <a href="#refactor" style="color: var(--cyan);">bottom of this page</a>.
@@ -1768,6 +1771,107 @@ sequenceDiagram
     <div class="status">✓ DONE</div>
   </article>
 
+  <!-- ===== REGISTRY-DRIVEN CORE (v2) ===== -->
+  <div class="section" id="registry-driven">
+    <h2>🧬 Registry-driven core · NACA v2 foundation</h2>
+    <p>Refactor v1 separated <em>code</em> into packages (core / tools / router / interfaces). Refactor v2 separates <em>configuration</em> the same way: every NACA module reads its agent / project lists from <code>agent_registry</code> + <code>project_registry</code> instead of carrying hardcoded arrays. The goal is <strong>one-row-insert agent onboarding</strong> — adding a new agent should never require editing N modules again.</p>
+
+    <p style="color: #888; font-size: 0.9rem;"><em>Plain English: today's incident (2026-05-13) — Siti went on extended leave 8 days ago, but supervisor + FCC's <code>/api/health</code> both kept false-alarming because each module carried its own hardcoded "what to watch" list that didn't know about the leave flag. The fix shipped same-day, but the audit revealed 4 more modules with the same disease. This section tracks the cleanup arc.</em></p>
+
+    <div class="callout amber" style="margin-top: 14px;"><strong>Anti-drift rule:</strong> a module MAY NOT carry an array/Set/map keyed by agent name or project repo. If such a list is needed at runtime, it MUST be derived from <code>agent_registry</code> or <code>project_registry</code> rows. The single exception is <code>naca-mcp-bridge</code>'s exposed-tool list — that's a security boundary, not an agent list.</div>
+
+    <h3 style="margin-top: 28px;">Canonical meta schema (v1.0)</h3>
+    <p>Locked in <a href="https://github.com/broneotodak/naca/pull/24">naca PR #24</a> · full spec at <a href="https://github.com/broneotodak/naca/blob/main/docs/spec/agent-registry-schema-v1.md"><code>docs/spec/agent-registry-schema-v1.md</code></a>. New canonical keys (purely additive; existing meta preserved):</p>
+    <ul>
+      <li><strong>Required for every active agent:</strong> <code>host</code> (siti-vps · claw · tr-home · slave-mbp · nas-ugreen · neo-mbp · neo-twin · naca-pi · external), <code>runtime</code> (pm2 · launchd · docker · systemd · external · n/a)</li>
+      <li><strong>Monitoring:</strong> <code>heartbeat_exempt</code>, <code>always_running</code>, <code>monitor_threshold_sec</code>, <code>is_critical</code>, <code>kuma_monitor_id</code></li>
+      <li><strong>Display / UX:</strong> <code>outbound_label</code>, <code>digest_queue</code> (read by Siti's outbound bridge)</li>
+      <li><strong>Routing / integration:</strong> <code>github_mentionable</code>, <code>is_core_service</code></li>
+    </ul>
+
+    <p>Backfilled live on neo-brain 2026-05-13 (28 agent rows updated, 0 project rows) via <a href="https://github.com/broneotodak/claude-tools-kit/pull/51"><code>claude-tools-kit/tools/registry-meta-backfill.js</code></a>. Script is idempotent — re-running writes nothing.</p>
+
+    <h3 style="margin-top: 28px;">Migration progress · 6 modules</h3>
+
+    <article class="refactor-phase done">
+      <div class="pnum">1</div>
+      <div class="body">
+        <h3>Spec + backfill foundation</h3>
+        <p>Canonical schema locked. <code>agent_registry.meta</code> normalised on 28 live rows. <code>project_registry</code> rows wait for verifier-agent migration to add the <code>skip_verify</code> flag (no current "NO_DEPLOY" rows in the table — the sentinel lives only in verifier-agent's hardcoded map).</p>
+        <div class="meta"><a href="https://github.com/broneotodak/naca/pull/24">naca PR #24</a> (spec) · <a href="https://github.com/broneotodak/claude-tools-kit/pull/51">CTK PR #51</a> (backfill)</div>
+      </div>
+      <div class="status">✓ DONE</div>
+    </article>
+
+    <article class="refactor-phase">
+      <div class="pnum">2</div>
+      <div class="body">
+        <h3>supervisor-agent.js · WATCH from registry</h3>
+        <p>Replace hardcoded 7-agent <code>WATCH</code> dict + <code>KNOWN_OUTSIDE_WATCH</code> set with <code>agent_registry</code> queries reading <code>host</code>, <code>runtime</code>, <code>monitor_threshold_sec</code>, <code>is_critical</code>, <code>heartbeat_exempt</code>. <strong>Kills the 2026-05-13 incident class permanently.</strong></p>
+        <div class="meta">~80 lines · supervisor-agent.js lines 51–59 + 249–253</div>
+      </div>
+      <div class="status">○ NEXT</div>
+    </article>
+
+    <article class="refactor-phase">
+      <div class="pnum">3</div>
+      <div class="body">
+        <h3>verifier-agent · PROJECT_DEPLOY_MAP to project_registry</h3>
+        <p>15-entry hardcoded repo→URL map replaced with <code>project_registry.deploy_url</code> reads. The deprecated <code>"NO_DEPLOY"</code> sentinel becomes <code>deploy_url=null</code> + <code>metadata.skip_verify=true</code>. Closes the "PR merged but verifier silently skipped" failure mode.</p>
+        <div class="meta">~30 lines + project_registry row inserts for currently-skipped agents</div>
+      </div>
+      <div class="status">○ PENDING</div>
+    </article>
+
+    <article class="refactor-phase">
+      <div class="pnum">4</div>
+      <div class="body">
+        <h3>siti-v2 outbound-bridge · labels + digest from registry</h3>
+        <p>14-entry <code>AGENT_LABELS</code> dict + 5-name <code>DIGEST_FROM_AGENTS</code> set replaced with <code>agent_registry.meta.outbound_label</code> + <code>meta.digest_queue</code>. New agents get correct emoji + batching policy on first heartbeat — no Siti redeploy.</p>
+        <div class="meta">~40 lines · outbound-bridge.js lines 70–98</div>
+      </div>
+      <div class="status">○ PENDING</div>
+    </article>
+
+    <article class="refactor-phase">
+      <div class="pnum">5</div>
+      <div class="body">
+        <h3>naca-app backend · GitHub @-mention list from registry</h3>
+        <p>Replace 4-name hardcoded list at <code>backend/server.js:1555</code> with <code>agent_registry.meta.github_mentionable</code> query. <code>@toolsmith</code> in a GitHub comment will route correctly without a backend deploy.</p>
+        <div class="meta">~20 lines · GitHub webhook handler</div>
+      </div>
+      <div class="status">○ PENDING</div>
+    </article>
+
+    <article class="refactor-phase">
+      <div class="pnum">6</div>
+      <div class="body">
+        <h3>planner-agent · core-service fallback from registry</h3>
+        <p>Replace hardcoded <code>if (next["dev-agent"] &amp;&amp; next["siti"])</code> sanity check with a count of agents flagged <code>meta.is_core_service=true</code>. Defensive logic still triggers if registry load is incomplete; just doesn't depend on specific agent names.</p>
+        <div class="meta">~15 lines · planner-agent index.js line 127</div>
+      </div>
+      <div class="status">○ PENDING</div>
+    </article>
+
+    <article class="refactor-phase">
+      <div class="pnum">7</div>
+      <div class="body">
+        <h3>CI lint guard · no-hardcoded-agents</h3>
+        <p>After step 6, add <code>scripts/lint-no-hardcoded-agents.sh</code> that fails CI on any source file containing an array/Set literal of recognisable agent names. Future-proofs the registry-driven discipline.</p>
+        <div class="meta">small bash script · runs in CTK + each interface repo CI</div>
+      </div>
+      <div class="status">○ PENDING</div>
+    </article>
+
+    <h3 style="margin-top: 28px;">After v2 lands · what changes for Neo</h3>
+    <ul>
+      <li><strong>Onboard a new agent:</strong> <code>INSERT INTO agent_registry</code> with proper meta tags. Supervisor watches it, Siti labels it, naca-app exposes it, daily-checkup includes it — all automatic. No code edits anywhere.</li>
+      <li><strong>Put an agent on leave:</strong> set <code>meta.heartbeat_exempt=true</code> + <code>meta.on_leave=true</code>. Every module stops monitoring it. No false alarms.</li>
+      <li><strong>Move an agent to a new host:</strong> update <code>meta.host</code>. Supervisor's restart actions (when Phase 8 of self-repair ships) target the new host automatically.</li>
+      <li><strong>Auto-repair recipes</strong> become buildable on top of this foundation — recipes match registry tags, not agent names, so the "add new agent" → "fix recipes break" loop ends here.</li>
+    </ul>
+  </div>
+
   <!-- ===== GLOSSARY ===== -->
   <div class="section" id="glossary">
     <h2>Glossary</h2>
@@ -1784,6 +1888,12 @@ sequenceDiagram
     <dd>Intent classifier engine + LLM tiebreak. Knows nothing about WhatsApp.</dd>
     <dt>siti-v2</dt>
     <dd>The WhatsApp interface. Now imports @naca/core + @naca/router + @naca/tools instead of carrying its own copies.</dd>
+    <dt>agent_registry</dt>
+    <dd>The canonical "phonebook" of every NACA agent (Supabase table). Refactor v2 makes every module read its watch / display / routing lists from this table instead of carrying hardcoded copies. Schema locked in <a href="https://github.com/broneotodak/naca/blob/main/docs/spec/agent-registry-schema-v1.md">agent-registry-schema-v1.md</a>.</dd>
+    <dt>project_registry</dt>
+    <dd>Companion table to agent_registry — one row per deployable project (repo / deploy_url / pm2 name / tier). Verifier-agent + deployer-agent + FCC all read from here. The deprecated <code>"NO_DEPLOY"</code> sentinel will be migrated to <code>deploy_url=null</code> + <code>metadata.skip_verify=true</code> in Refactor v2 step 3.</dd>
+    <dt>Registry-driven core (v2)</dt>
+    <dd>The follow-up to Platform Refactor v1. Where v1 separated <em>code</em> into packages, v2 separates <em>configuration</em> — onboarding a new agent should be a one-row INSERT, never a code edit across N modules. 6 migrations + 1 CI lint guard tracked under the "Core v2" section above.</dd>
     <dt>siti-router</dt>
     <dd>The active "Siti v2" pm2 process on Hetzner. Replaces the old monolithic <code>siti</code> agent. Owns the outbound bridge that delivers <code>agent_commands(to_agent='siti')</code> to WhatsApp.</dd>
     <dt>siti-ingest</dt>
