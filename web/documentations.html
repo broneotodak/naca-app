@@ -1867,6 +1867,8 @@ sequenceDiagram
 
     <div class="callout green" style="margin-top: 14px;"><strong>Refactor v2 complete — 7/7 shipped 2026-05-13.</strong> Zero hardcoded agent/project lists remain in the 5 migrated repos (excepting intentional self-alias + payload-schema fallbacks, both lint-exempt with reason). Adding a new agent is a one-row <code>INSERT</code> in <code>agent_registry</code> with proper meta tags — supervisor watches it, Siti labels it, naca-app accepts <code>@-mentions</code> on it, daily-checkup includes it. Zero code edits.</div>
 
+    <p style="color: #888; font-size: 0.85rem; margin-top: 10px; font-style: italic;">The 2026-05-13 shipping arc: <strong>25 PRs in a single 8-hour session</strong> — a persistent NACA CC orchestrating the architectural refactor while a parallel Siti CC handled the interface lane. Three phases: morning false-positive incident triage (4 PRs) → afternoon Agent Plug &amp; Play architectural arc (15 PRs across 7 steps) → evening single-source-of-truth audit cleanup (6 PRs). All admin-merged, all deployed live, all verified.</p>
+
     <h3 style="margin-top: 28px;">After v2 lands · what changes for Neo</h3>
     <ul>
       <li><strong>Onboard a new agent:</strong> <code>INSERT INTO agent_registry</code> with proper meta tags. Supervisor watches it, Siti labels it, naca-app exposes it, daily-checkup includes it — all automatic. No code edits anywhere.</li>
