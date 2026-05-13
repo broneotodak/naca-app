@@ -886,6 +886,81 @@ echo "TMPDIR=$TMP"
     return;
   }
 
+  // GET /api/media?kind=&person_id=&since=&q=&limit= — browse/search media catalog
+  // Migrated from Siti v1 /api/media (port 3800) which was killed when legacy siti
+  // pm2 was stopped (memory feedback_naca_siti_no_assumptions). Replicates the same
+  // response shape so lib/screens/memory_screen.dart doesn't need other field changes.
+  //
+  // Semantic-search (q param) is NOT yet supported here — embedding requires a
+  // Gemini key that naca-backend doesn't have. For now `q` falls back to ILIKE on
+  // transcript+caption (best-effort). Full semantic search will move with the rest
+  // of the siti-v2 endpoint gap (see docs/spec/siti-v2-endpoint-gap.md).
+  if (urlPath === '/api/media' && req.method === 'GET') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    try {
+      const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') || '50'), 1), 200);
+      const kindParam = url.searchParams.get('kind');
+      const kind = kindParam && ['image', 'audio', 'video'].includes(kindParam) ? kindParam : null;
+      const personId = url.searchParams.get('person_id') || null;
+      const since = url.searchParams.get('since') || null;
+      const q = (url.searchParams.get('q') || '').trim();
+
+      let query = supabase.from('media')
+        .select('id, kind, mime_type, bytes, transcript, caption, storage_url, source, source_ref, subject_id, created_at')
+        .order('created_at', { ascending: false })
+        .limit(limit);
+      if (kind) query = query.eq('kind', kind);
+      if (personId) query = query.eq('subject_id', personId);
+      if (since) query = query.gte('created_at', since);
+
+      // Best-effort text fallback while semantic search lives on a dead endpoint.
+      // Uses Postgres ILIKE — matches substrings in transcript or caption. Not
+      // a replacement for embedding similarity, but better than zero results.
+      if (q) {
+        const pattern = `%${q.replace(/[%_]/g, '\\$&')}%`;
+        query = query.or(`transcript.ilike.${pattern},caption.ilike.${pattern}`);
+      }
+
+      const { data: rows, error } = await query;
+      if (error) throw error;
+
+      // Enrich with person display name (best-effort)
+      const subjectIds = [...new Set((rows || []).map(r => r.subject_id).filter(Boolean))];
+      const peopleById = {};
+      if (subjectIds.length) {
+        const { data: ppl } = await supabase.from('people')
+          .select('id, display_name, push_name')
+          .in('id', subjectIds);
+        for (const p of (ppl || [])) peopleById[p.id] = p;
+      }
+
+      // Match the v1 response shape so Dart code doesn't need changes beyond the URL.
+      // signed_url is intentionally null — Dart uses /api/media/:id/blob for bytes.
+      const enriched = (rows || []).map(r => ({
+        id: r.id,
+        kind: r.kind,
+        mime_type: r.mime_type,
+        bytes: r.bytes,
+        transcript: r.transcript,
+        caption: r.caption,
+        created_at: r.created_at,
+        storage_url: r.storage_url,
+        signed_url: null,
+        source: r.source,
+        source_ref: r.source_ref,
+        subject_id: r.subject_id,
+        person_name: peopleById[r.subject_id]?.display_name || peopleById[r.subject_id]?.push_name || null,
+        similarity: null,
+      }));
+      json(res, {
+        media: enriched,
+        count: enriched.length,
+        mode: q ? 'search-fallback-ilike' : 'browse',
+      });
+    } catch (e) { json(res, { error: e.message }, 500); }
+    return;
+  }
+
   // GET /api/media-batch?ids=uuid1,uuid2 — fetch media metadata for memory cross-links
   // Returns kind/mime/transcript/caption only (no signed URLs — those still come from Siti).
   if (urlPath === '/api/media-batch' && req.method === 'GET') {
