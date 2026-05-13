@@ -368,7 +368,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   <a href="#refactor">Platform refactor</a>
 
   <div class="nav-section-label">↓ Core v2</div>
-  <a href="#registry-driven">🧬 Registry-driven core</a>
+  <a href="#registry-driven">🔌 Agent Plug &amp; Play</a>
   <a href="#glossary">Glossary</a>
 
   <div class="live-pill-mini" id="livePillMini"><span id="livePillMiniText">connecting…</span></div>
@@ -1771,10 +1771,10 @@ sequenceDiagram
     <div class="status">✓ DONE</div>
   </article>
 
-  <!-- ===== REGISTRY-DRIVEN CORE (v2) ===== -->
+  <!-- ===== REGISTRY-DRIVEN CORE (v2) · AKA Agent Plug & Play ===== -->
   <div class="section" id="registry-driven">
-    <h2>🧬 Registry-driven core · NACA v2 foundation</h2>
-    <p>Refactor v1 separated <em>code</em> into packages (core / tools / router / interfaces). Refactor v2 separates <em>configuration</em> the same way: every NACA module reads its agent / project lists from <code>agent_registry</code> + <code>project_registry</code> instead of carrying hardcoded arrays. The goal is <strong>one-row-insert agent onboarding</strong> — adding a new agent should never require editing N modules again.</p>
+    <h2>🔌 Agent Plug &amp; Play <span style="color: #888; font-size: 0.7em; font-weight: normal;">(engineering: registry-driven core, v2)</span></h2>
+    <p>Refactor v1 separated <em>code</em> into packages (core / tools / router / interfaces). Refactor v2 separates <em>configuration</em> the same way: every NACA module reads its agent / project lists from <code>agent_registry</code> + <code>project_registry</code> instead of carrying hardcoded arrays. The goal is <strong>plug-and-play agent onboarding</strong> — any agent (Neo's own, or one pulled from the community / GitHub) drops into the fleet via a single registry row. Supervisor watches it, Siti labels it, naca-app accepts <code>@-mentions</code>, verifier checks its deploy. Zero code edits.</p>
 
     <p style="color: #888; font-size: 0.9rem;"><em>Plain English: today's incident (2026-05-13) — Siti went on extended leave 8 days ago, but supervisor + FCC's <code>/api/health</code> both kept false-alarming because each module carried its own hardcoded "what to watch" list that didn't know about the leave flag. The fix shipped same-day, but the audit revealed 4 more modules with the same disease. This section tracks the cleanup arc.</em></p>
 
@@ -1897,7 +1897,9 @@ sequenceDiagram
     <dt>project_registry</dt>
     <dd>Companion table to agent_registry — one row per deployable project (repo / deploy_url / pm2 name / tier). Verifier-agent + deployer-agent + FCC all read from here. The deprecated <code>"NO_DEPLOY"</code> sentinel will be migrated to <code>deploy_url=null</code> + <code>metadata.skip_verify=true</code> in Refactor v2 step 3.</dd>
     <dt>Registry-driven core (v2)</dt>
-    <dd>The follow-up to Platform Refactor v1. Where v1 separated <em>code</em> into packages, v2 separates <em>configuration</em> — onboarding a new agent should be a one-row INSERT, never a code edit across N modules. 6 migrations + 1 CI lint guard tracked under the "Core v2" section above.</dd>
+    <dd>Engineering name for what Neo calls <strong>Agent Plug &amp; Play</strong>. The follow-up to Platform Refactor v1. Where v1 separated <em>code</em> into packages, v2 separates <em>configuration</em> — onboarding a new agent should be a one-row INSERT, never a code edit across N modules. 6 migrations + 1 CI lint guard, all shipped 2026-05-13. See "Core v2" section above.</dd>
+    <dt>Agent Plug &amp; Play</dt>
+    <dd>User-facing name for the registry-driven core (v2). Captures Neo's framing from 2026-05-13: "any agent created by the community or available in GitHub, I can just pull and plug-and-play into our NACA." Mechanic: insert agent_registry row with proper meta tags → supervisor watches, Siti labels, naca-app accepts mentions, verifier checks deploy. Specified in <a href="https://github.com/broneotodak/naca/blob/main/docs/spec/agent-registry-schema-v1.md">agent-registry-schema-v1.md</a>.</dd>
     <dt>siti-router</dt>
     <dd>The active "Siti v2" pm2 process on Hetzner. Replaces the old monolithic <code>siti</code> agent. Owns the outbound bridge that delivers <code>agent_commands(to_agent='siti')</code> to WhatsApp.</dd>
     <dt>siti-ingest</dt>
