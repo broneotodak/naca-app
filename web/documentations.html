@@ -375,7 +375,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 </nav>
 
 <div class="header">
-  <div class="badge">● live · auto-refresh 30s · platform refactor v1 · 100% · registry-driven core v2 · 3/7</div>
+  <div class="badge">● live · auto-refresh 30s · platform refactor v1 · 100% · registry-driven core v2 · 100%</div>
   <h1>NACA</h1>
   <div class="tagline">
     <strong>Neo's Agentic Centre Applications</strong> — a personal AI-agent fleet running across Macs, VPSes, an office NAS, and a home Threadripper, coordinated by one neural memory and one operator (Neo). Operator overview above; platform-refactor engineering progress at the <a href="#refactor" style="color: var(--cyan);">bottom of this page</a>.
@@ -1825,45 +1825,47 @@ sequenceDiagram
       <div class="status">✓ DONE</div>
     </article>
 
-    <article class="refactor-phase">
+    <article class="refactor-phase done">
       <div class="pnum">4</div>
       <div class="body">
         <h3>siti-v2 outbound-bridge · labels + digest from registry</h3>
-        <p>14-entry <code>AGENT_LABELS</code> dict + 5-name <code>DIGEST_FROM_AGENTS</code> set replaced with <code>agent_registry.meta.outbound_label</code> + <code>meta.digest_queue</code>. New agents get correct emoji + batching policy on first heartbeat — no Siti redeploy.</p>
-        <div class="meta">~40 lines · outbound-bridge.js lines 70–98</div>
+        <p>14-entry <code>AGENT_LABELS</code> dict + 6-name <code>DIGEST_FROM_AGENTS</code> set deleted. Outbound bridge reads <code>meta.outbound_label</code> + <code>meta.digest_queue</code> from registry per cycle (5-min TTL cache). Zero behavioural change at deploy — backfill held identical values from the legacy consts. 26/26 outbound-bridge tests + 407/407 full suite green.</p>
+        <div class="meta"><a href="https://github.com/broneotodak/siti-v2/pull/69">siti-v2 PR #69</a></div>
       </div>
-      <div class="status">○ NEXT</div>
+      <div class="status">✓ DONE</div>
     </article>
 
-    <article class="refactor-phase">
+    <article class="refactor-phase done">
       <div class="pnum">5</div>
       <div class="body">
         <h3>naca-app backend · GitHub @-mention list from registry</h3>
-        <p>Replace 4-name hardcoded list at <code>backend/server.js:1555</code> with <code>agent_registry.meta.github_mentionable</code> query. <code>@toolsmith</code> in a GitHub comment will route correctly without a backend deploy.</p>
-        <div class="meta">~20 lines · GitHub webhook handler</div>
+        <p>4-name hardcoded list at <code>backend/server.js:1555</code> replaced with <code>getMentionableAgents()</code> reading <code>meta.github_mentionable=true</code>. Webhook fires irregularly — 5-min TTL cache absorbs most. Adding <code>@toolsmith</code> support is now a single <code>jsonb_set</code>.</p>
+        <div class="meta"><a href="https://github.com/broneotodak/naca-app/pull/30">naca-app PR #30</a></div>
       </div>
-      <div class="status">○ PENDING</div>
+      <div class="status">✓ DONE</div>
     </article>
 
-    <article class="refactor-phase">
+    <article class="refactor-phase done">
       <div class="pnum">6</div>
       <div class="body">
         <h3>planner-agent · core-service fallback from registry</h3>
-        <p>Replace hardcoded <code>if (next["dev-agent"] &amp;&amp; next["siti"])</code> sanity check with a count of agents flagged <code>meta.is_core_service=true</code>. Defensive logic still triggers if registry load is incomplete; just doesn't depend on specific agent names.</p>
-        <div class="meta">~15 lines · planner-agent index.js line 127</div>
+        <p>Hardcoded <code>if (next["dev-agent"] &amp;&amp; next["siti"])</code> sanity check replaced with a count of agents flagged <code>meta.is_core_service=true</code> (threshold ≥ 2). Renaming/decommissioning either of those agents no longer silently disables planner. Boot log on tr-home confirms: <code>capability registry loaded · 3 agents (core: reviewer, dev-agent, siti)</code>.</p>
+        <div class="meta"><a href="https://github.com/broneotodak/planner-agent/pull/2">planner-agent PR #2</a></div>
       </div>
-      <div class="status">○ PENDING</div>
+      <div class="status">✓ DONE</div>
     </article>
 
-    <article class="refactor-phase">
+    <article class="refactor-phase done">
       <div class="pnum">7</div>
       <div class="body">
         <h3>CI lint guard · no-hardcoded-agents</h3>
-        <p>After step 6, add <code>scripts/lint-no-hardcoded-agents.sh</code> that fails CI on any source file containing an array/Set literal of recognisable agent names. Future-proofs the registry-driven discipline.</p>
-        <div class="meta">small bash script · runs in CTK + each interface repo CI</div>
+        <p><code>scripts/lint-no-hardcoded-agents.sh</code> in CTK fails if any source file uses 2+ distinct NACA agent names as object keys or array/Set elements. Comment-aware; supports inline exemption markers (<code>// lint:hardcoded-agents-ok</code> + <code>-begin</code>/<code>-end</code>) for cases where local hardcoded knowledge is intentional (SELF_AGENTS, PAYLOAD_SCHEMAS). All 5 refactor-v2 repos pass cleanly.</p>
+        <div class="meta"><a href="https://github.com/broneotodak/claude-tools-kit/pull/54">CTK PR #54</a> · <a href="https://github.com/broneotodak/siti-v2/pull/70">siti-v2 PR #70</a> · <a href="https://github.com/broneotodak/planner-agent/pull/3">planner PR #3</a></div>
       </div>
-      <div class="status">○ PENDING</div>
+      <div class="status">✓ DONE</div>
     </article>
+
+    <div class="callout green" style="margin-top: 14px;"><strong>Refactor v2 complete — 7/7 shipped 2026-05-13.</strong> Zero hardcoded agent/project lists remain in the 5 migrated repos (excepting intentional self-alias + payload-schema fallbacks, both lint-exempt with reason). Adding a new agent is a one-row <code>INSERT</code> in <code>agent_registry</code> with proper meta tags — supervisor watches it, Siti labels it, naca-app accepts <code>@-mentions</code> on it, daily-checkup includes it. Zero code edits.</div>
 
     <h3 style="margin-top: 28px;">After v2 lands · what changes for Neo</h3>
     <ul>
