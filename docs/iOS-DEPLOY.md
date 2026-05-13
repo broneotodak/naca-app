@@ -10,7 +10,7 @@ How to build and run NACA on a physical iPhone (test device or daily driver). Co
 |---|---|
 | Bundle ID | `com.broneotodak.naca` |
 | Test target bundle ID | `com.broneotodak.naca.RunnerTests` |
-| Apple Developer Team | `YG4N678CT6` (Neo's personal team) |
+| Apple Developer Team | `YG4N678CT6` — **paid Apple Developer Program (Individual)** on `afadli.86@gmail.com`. Renews July 8 (US$99/year). Code-signing cert valid → Jul 5 2026 (1-year, NOT a 7-day free Personal Team profile). Membership saved in neo-brain credential vault `service=apple_developer`. |
 | Display name | `NACA` |
 | iOS deployment target | `13.0` |
 | iOS Xcode workspace | `ios/Runner.xcworkspace` (open this, NOT `Runner.xcodeproj`) |
