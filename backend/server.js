@@ -23,6 +23,34 @@ if (process.env.NEO_BRAIN_URL && process.env.NEO_BRAIN_SERVICE_ROLE_KEY) {
 // server-side (HTTP fine on Tailscale) and stream them over HTTPS to the
 // browser — avoids the http://100.85.18.97:9000/... URLs that Chrome blocks
 // on a https://naca.neotodak.com page.
+// === GitHub @-mentionable agents — registry-driven (refactor v2 step 5) ====
+// Replaces the previous hardcoded ['dev-agent','planner-agent','reviewer-agent','siti'].
+// Adding a new mentionable agent is now a single registry edit:
+//   UPDATE agent_registry SET meta = jsonb_set(meta, '{github_mentionable}', 'true')
+// Cache TTL 5 min — webhook handler picks up changes on its next fire.
+// Schema: broneotodak/naca docs/spec/agent-registry-schema-v1.md §2.4.
+let mentionableAgentsCache = [];
+let mentionableLoadedAt = 0;
+const MENTIONABLE_TTL_MS = 5 * 60 * 1000;
+async function getMentionableAgents() {
+  if (Date.now() - mentionableLoadedAt < MENTIONABLE_TTL_MS && mentionableAgentsCache.length) {
+    return mentionableAgentsCache;
+  }
+  if (!supabase) return mentionableAgentsCache; // graceful: keep prior cache
+  try {
+    const { data, error } = await supabase
+      .from('agent_registry')
+      .select('agent_name, meta')
+      .eq('status', 'active');
+    if (error) { console.warn('[mentionable] load failed:', error.message); return mentionableAgentsCache; }
+    mentionableAgentsCache = (data || [])
+      .filter(r => r.meta?.github_mentionable === true)
+      .map(r => r.agent_name);
+    mentionableLoadedAt = Date.now();
+    return mentionableAgentsCache;
+  } catch (e) { console.warn('[mentionable] load error:', e.message); return mentionableAgentsCache; }
+}
+
 let minioCfg = null;
 async function loadMinioCfg() {
   if (!supabase) return;
@@ -1552,7 +1580,8 @@ function handleGithubWebhook(req, res) {
         case 'issue_comment': {
           // Comments mentioning an agent → INTENT (planner reads the body and decides what to do).
           const body = payload.comment?.body || '';
-          const mentioned = ['dev-agent', 'planner-agent', 'reviewer-agent', 'siti'].filter(t => body.includes('@' + t));
+          const mentionable = await getMentionableAgents();
+          const mentioned = mentionable.filter(t => body.includes('@' + t));
           if (mentioned.length) {
             intents.push({
               source: 'github_webhook',
