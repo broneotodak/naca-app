@@ -1431,7 +1431,10 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
       if (_mediaKind != 'all') params['kind'] = _mediaKind;
       final q = _mediaSearchCtrl.text.trim();
       if (q.isNotEmpty) params['q'] = q;
-      final uri = Uri.parse('${AppConfig.apiBaseUrl}/api/siti/api/media').replace(queryParameters: params);
+      // Migrated 2026-05-13 from /api/siti/api/media (port 3800, dead) to naca-backend
+      // native /api/media (Supabase service-role). Semantic search falls back to ILIKE
+      // until Gemini embed lands in naca-backend — see docs/spec/siti-v2-endpoint-gap.md.
+      final uri = Uri.parse('${AppConfig.apiBaseUrl}/api/media').replace(queryParameters: params);
       final res = await http.get(uri, headers: {
         'Authorization': 'Bearer ${AppConfig.authToken}',
       }).timeout(const Duration(seconds: 25));
