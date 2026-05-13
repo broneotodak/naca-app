@@ -375,7 +375,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 </nav>
 
 <div class="header">
-  <div class="badge">● live · auto-refresh 30s · platform refactor v1 · 100% · registry-driven core v2 · 1/7</div>
+  <div class="badge">● live · auto-refresh 30s · platform refactor v1 · 100% · registry-driven core v2 · 3/7</div>
   <h1>NACA</h1>
   <div class="tagline">
     <strong>Neo's Agentic Centre Applications</strong> — a personal AI-agent fleet running across Macs, VPSes, an office NAS, and a home Threadripper, coordinated by one neural memory and one operator (Neo). Operator overview above; platform-refactor engineering progress at the <a href="#refactor" style="color: var(--cyan);">bottom of this page</a>.
@@ -1803,24 +1803,26 @@ sequenceDiagram
       <div class="status">✓ DONE</div>
     </article>
 
-    <article class="refactor-phase">
+    <article class="refactor-phase done">
       <div class="pnum">2</div>
       <div class="body">
         <h3>supervisor-agent.js · WATCH from registry</h3>
-        <p>Replace hardcoded 7-agent <code>WATCH</code> dict + <code>KNOWN_OUTSIDE_WATCH</code> set with <code>agent_registry</code> queries reading <code>host</code>, <code>runtime</code>, <code>monitor_threshold_sec</code>, <code>is_critical</code>, <code>heartbeat_exempt</code>. <strong>Kills the 2026-05-13 incident class permanently.</strong></p>
-        <div class="meta">~80 lines · supervisor-agent.js lines 51–59 + 249–253</div>
+        <p>Hardcoded 7-agent <code>WATCH</code> dict + 13-entry <code>KNOWN_OUTSIDE_WATCH</code> set deleted. Live WATCH built per cycle from <code>agent_registry</code> via <code>buildWatchList()</code>. <code>detectSitiWaNotReady</code> generalised → any agent with <code>meta.kuma_monitor_id</code> gets the external-monitor check. <strong>Kills the 2026-05-13 incident class permanently.</strong></p>
+        <p style="color: #888; font-size: 0.9rem;">Live blast radius: WATCH expanded 7 → 21 agents on first cycle (actual fleet coverage). Two agents (twin-autoreply, plaud-pipeline) surfaced as registered-but-not-heartbeating; tagged <code>heartbeat_exempt=true</code> with reason → cycle settled at 19 watched. Demote-on-repeat (PR #47) caps any false-fire to 1 WA per 7d signature.</p>
+        <div class="meta"><a href="https://github.com/broneotodak/claude-tools-kit/pull/53">CTK PR #53</a></div>
       </div>
-      <div class="status">○ NEXT</div>
+      <div class="status">✓ DONE</div>
     </article>
 
-    <article class="refactor-phase">
+    <article class="refactor-phase done">
       <div class="pnum">3</div>
       <div class="body">
         <h3>verifier-agent · PROJECT_DEPLOY_MAP to project_registry</h3>
-        <p>15-entry hardcoded repo→URL map replaced with <code>project_registry.deploy_url</code> reads. The deprecated <code>"NO_DEPLOY"</code> sentinel becomes <code>deploy_url=null</code> + <code>metadata.skip_verify=true</code>. Closes the "PR merged but verifier silently skipped" failure mode.</p>
-        <div class="meta">~30 lines + project_registry row inserts for currently-skipped agents</div>
+        <p>15-entry hardcoded repo→URL map deleted. <code>loadProjectDeployMap()</code> queries <code>project_registry</code> on boot + every 5 min (TTL-gated). Deprecated <code>"NO_DEPLOY"</code> sentinel replaced by <code>deploy_url=null</code> OR <code>metadata.skip_verify=true</code>. Multi-row repos (claude-tools-kit hosts ~5 agents) resolved via <code>project === short_repo_name</code> tiebreaker.</p>
+        <p style="color: #888; font-size: 0.9rem;">Live coverage: 8 verify → 9 verify. New rows auto-picked: THR (staging), clauden, neotodak-command, tr-home-dashboard. Boot probe on NAS Docker confirmed all 9 URLs HTTP 200.</p>
+        <div class="meta"><a href="https://github.com/broneotodak/verifier-agent/pull/3">verifier-agent PR #3</a></div>
       </div>
-      <div class="status">○ PENDING</div>
+      <div class="status">✓ DONE</div>
     </article>
 
     <article class="refactor-phase">
@@ -1830,7 +1832,7 @@ sequenceDiagram
         <p>14-entry <code>AGENT_LABELS</code> dict + 5-name <code>DIGEST_FROM_AGENTS</code> set replaced with <code>agent_registry.meta.outbound_label</code> + <code>meta.digest_queue</code>. New agents get correct emoji + batching policy on first heartbeat — no Siti redeploy.</p>
         <div class="meta">~40 lines · outbound-bridge.js lines 70–98</div>
       </div>
-      <div class="status">○ PENDING</div>
+      <div class="status">○ NEXT</div>
     </article>
 
     <article class="refactor-phase">
