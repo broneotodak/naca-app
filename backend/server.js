@@ -229,6 +229,114 @@ const sm = new SessionManager();
 // 15-second TTL cache for Uptime Kuma status-page fetches.
 let kumaCache = null;
 
+// NEO_SELF_ID — Neo's canonical person id in neo-brain.people.
+// Treated as delete-protected by the people endpoints below (matches the
+// v1 siti server.js safety rail — feedback memory project_naca_app §
+// "Identity editing in NACA (2026-04-24)").
+const NEO_SELF_ID = '00000000-0000-0000-0000-000000000001';
+
+// applyPersonPatch — ported from siti/server.js (v1 monolith, line 604).
+// Pure logic + Supabase update. Returns { ok, data, changed } or { error }.
+// Differences from v1: drops in-memory personCache index + SSE broadcast
+// (naca-backend doesn't keep a cache; NACA App uses Supabase Realtime if
+// it wants live updates). Field semantics are byte-for-byte identical so
+// the v1 PEOPLE UI behaviour migrates without surprises.
+async function applyPersonPatch(person, args) {
+  if (!person) return { error: 'person required' };
+  if (!supabase) return { error: 'neo-brain not configured' };
+  const patch = {};
+  const changed = [];
+
+  if (typeof args.display_name === 'string' && args.display_name.trim()) {
+    patch.display_name = args.display_name.trim();
+    changed.push('display_name');
+  }
+  if (typeof args.push_name === 'string') {
+    patch.push_name = args.push_name.trim() || null;
+    changed.push('push_name');
+  }
+  if (typeof args.relationship === 'string') {
+    patch.relationship = args.relationship.trim() || null;
+    changed.push('relationship');
+  }
+  if (typeof args.bio === 'string') {
+    patch.bio = args.bio.trim() || null;
+    changed.push('bio');
+  }
+  if (Array.isArray(args.languages)) {
+    patch.languages = args.languages.map((s) => String(s).trim()).filter(Boolean);
+    changed.push('languages');
+  }
+
+  // Nicknames — add/remove/replace with case-insensitive dedup
+  let nextNicks = Array.isArray(person.nicknames) ? [...person.nicknames] : [];
+  if (Array.isArray(args.replace_nicknames)) {
+    nextNicks = args.replace_nicknames.map((s) => String(s).trim()).filter(Boolean);
+    changed.push('nicknames(replaced)');
+  } else {
+    if (Array.isArray(args.add_nicknames) && args.add_nicknames.length) {
+      let added = 0;
+      for (const raw of args.add_nicknames) {
+        const n = String(raw).trim();
+        if (!n) continue;
+        if (!nextNicks.some((x) => String(x).toLowerCase() === n.toLowerCase())) {
+          nextNicks.push(n); added++;
+        }
+      }
+      if (added) changed.push('nicknames(+' + added + ')');
+    }
+    if (Array.isArray(args.remove_nicknames) && args.remove_nicknames.length) {
+      const removeSet = new Set(args.remove_nicknames.map((s) => String(s).trim().toLowerCase()));
+      const before = nextNicks.length;
+      nextNicks = nextNicks.filter((x) => !removeSet.has(String(x).toLowerCase()));
+      if (nextNicks.length !== before) changed.push('nicknames(-' + (before - nextNicks.length) + ')');
+    }
+  }
+  if (changed.some((c) => c.startsWith('nicknames'))) patch.nicknames = nextNicks;
+
+  // Facts — add (max 30 cap, dedup) OR direct replace
+  if (Array.isArray(args.add_facts) && args.add_facts.length) {
+    const existing = Array.isArray(person.facts) ? [...person.facts] : [];
+    const lowered = new Set(existing.map((f) => String(f).toLowerCase()));
+    let added = 0;
+    for (const raw of args.add_facts) {
+      const f = String(raw).trim();
+      if (!f) continue;
+      if (!lowered.has(f.toLowerCase())) { existing.push(f); lowered.add(f.toLowerCase()); added++; }
+    }
+    if (added) { patch.facts = existing.slice(0, 30); changed.push('facts(+' + added + ')'); }
+  }
+  if (!args.add_facts && Array.isArray(args.facts)) {
+    patch.facts = args.facts.map((s) => String(s).trim()).filter(Boolean).slice(0, 30);
+    changed.push('facts(replaced)');
+  }
+
+  // Traits — same shape as facts
+  if (Array.isArray(args.add_traits) && args.add_traits.length) {
+    const existing = Array.isArray(person.traits) ? [...person.traits] : [];
+    const lowered = new Set(existing.map((f) => String(f).toLowerCase()));
+    let added = 0;
+    for (const raw of args.add_traits) {
+      const t = String(raw).trim();
+      if (!t) continue;
+      if (!lowered.has(t.toLowerCase())) { existing.push(t); lowered.add(t.toLowerCase()); added++; }
+    }
+    if (added) { patch.traits = existing.slice(0, 30); changed.push('traits(+' + added + ')'); }
+  }
+  if (!args.add_traits && Array.isArray(args.traits)) {
+    patch.traits = args.traits.map((s) => String(s).trim()).filter(Boolean).slice(0, 30);
+    changed.push('traits(replaced)');
+  }
+
+  if (Object.keys(patch).length === 0) return { error: 'no fields to update' };
+  patch.updated_at = new Date().toISOString();
+
+  const { data, error } = await supabase.from('people').update(patch).eq('id', person.id).select().maybeSingle();
+  if (error) return { error: error.message };
+  if (!data) return { error: 'update returned no row' };
+  return { ok: true, data, changed };
+}
+
 const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
@@ -346,6 +454,46 @@ const server = http.createServer(async (req, res) => {
 
   if (urlPath === '/api/health') {
     json(res, { status: 'ok', uptime: process.uptime(), sessions: sm.list().length });
+    return;
+  }
+
+  // =============================================
+  // PEOPLE — Identity CRUD (ported from siti v1, 2026-05-14)
+  // Replaces /api/siti/api/people/:id PATCH+DELETE that went 502 after the
+  // v1 monolith on port 3800 was stopped. See docs/spec/siti-v2-endpoint-gap.md.
+  // =============================================
+
+  // PATCH /api/people/:id — edit display_name / push_name / relationship /
+  // bio / languages / nicknames / facts / traits. Body shape matches v1
+  // applyPersonPatch args. Returns { ok, person, changed }.
+  const peopleEditMatch = urlPath.match(/^\/api\/people\/([0-9a-f-]{36})$/);
+  if (peopleEditMatch && req.method === 'PATCH') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    const id = peopleEditMatch[1];
+    readBody(req, async (body) => {
+      try {
+        const { data: person, error: fetchErr } = await supabase.from('people').select('*').eq('id', id).maybeSingle();
+        if (fetchErr) { json(res, { error: fetchErr.message }, 500); return; }
+        if (!person) { json(res, { error: 'person not found' }, 404); return; }
+        const result = await applyPersonPatch(person, body || {});
+        if (result.error) { json(res, { error: result.error }, 400); return; }
+        json(res, { ok: true, person: result.data, changed: result.changed });
+      } catch (e) { json(res, { error: e.message }, 500); }
+    });
+    return;
+  }
+
+  // DELETE /api/people/:id — refuses NEO_SELF_ID; otherwise hard-deletes.
+  if (peopleEditMatch && req.method === 'DELETE') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    const id = peopleEditMatch[1];
+    if (id === NEO_SELF_ID) { json(res, { error: 'refusing to delete self-identity' }, 400); return; }
+    try {
+      const { data, error } = await supabase.from('people').delete().eq('id', id).select('id, display_name').maybeSingle();
+      if (error) { json(res, { error: error.message }, 500); return; }
+      if (!data) { json(res, { error: 'person not found' }, 404); return; }
+      json(res, { ok: true, id, display_name: data.display_name });
+    } catch (e) { json(res, { error: e.message }, 500); }
     return;
   }
 
