@@ -913,6 +913,14 @@ echo "TMPDIR=$TMP"
       if (personId) query = query.eq('subject_id', personId);
       if (since) query = query.gte('created_at', since);
 
+      // Hide archived rows by default (e.g. 1,184 Status broadcast media archived
+      // 2026-05-14 — makeup/lipstick/food ad bytes that twin-ingest captured before
+      // the @broadcast filter regression was fixed in broneotodak/neo-twin#1).
+      // Pass ?include_archived=1 to override (e.g. for audit / restore tools).
+      if (url.searchParams.get('include_archived') !== '1') {
+        query = query.or('metadata->>archived.is.null,metadata->>archived.eq.false');
+      }
+
       // Best-effort text fallback while semantic search lives on a dead endpoint.
       // Uses Postgres ILIKE — matches substrings in transcript or caption. Not
       // a replacement for embedding similarity, but better than zero results.
