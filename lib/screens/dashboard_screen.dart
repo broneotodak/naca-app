@@ -288,10 +288,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
       };
     }
 
-    // Also check Siti live status via proxy
+    // Siti live status via naca-backend's /api/siti-status aggregator
+    // (migrated 2026-05-14 — port 3800 v1 monolith is intentionally stopped).
+    // Endpoint reads agent_heartbeats for siti-ingest + siti-router. See
+    // docs/spec/siti-v2-endpoint-gap.md for the migration menu.
     try {
       final sitiHealth = await http.get(
-        Uri.parse('${AppConfig.apiBaseUrl}/api/siti/api/status'),
+        Uri.parse('${AppConfig.apiBaseUrl}/api/siti-status'),
         headers: {'Authorization': 'Bearer ${AppConfig.authToken}'},
       ).timeout(const Duration(seconds: 5));
       if (sitiHealth.statusCode < 400) {
@@ -338,11 +341,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
 
     try {
-      // Always go through the naca-app backend proxy. Direct
-      // http://178.156.241.204:3800 fails on iOS (App Transport Security
-      // blocks plain HTTP) and lacks the x-pin auth header anyway. The
-      // proxy is HTTPS + auth-gated.
-      final sitiUrl = '${AppConfig.apiBaseUrl}/api/siti/api/health';
+      // Use naca-backend's /api/siti-status (replaces dead /api/siti/api/health
+      // proxy that went 502 when v1 monolith stopped). Same auth gate, single
+      // aggregated health verdict derived from agent_heartbeats.
+      final sitiUrl = '${AppConfig.apiBaseUrl}/api/siti-status';
       final sitiHeaders = {'Authorization': 'Bearer ${AppConfig.authToken}'};
       results['Siti (nclaw)'] = await _pingHttp(sitiUrl, headers: sitiHeaders);
     } catch (_) {

@@ -71,12 +71,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       results['Supabase (neo-brain)'] = _ConnStatus(false, 'Error', e.toString());
     }
 
-    // Test Siti — always proxy through the naca-app backend (HTTPS + adds
-    // x-pin header). Direct VPS :3800 was the previous mobile path but
-    // iOS ATS blocks plain HTTP, so SETTINGS connection test would always
-    // fail on iPhone even when Siti was healthy.
+    // Test Siti via naca-backend's /api/siti-status aggregator (2026-05-14
+    // migration — replaces dead /api/siti/api/health proxy). Endpoint reads
+    // agent_heartbeats for siti-ingest + siti-router and returns hostname
+    // for the connection-test detail line.
     try {
-      final sitiUrl = '${AppConfig.apiBaseUrl}/api/siti/api/health';
+      final sitiUrl = '${AppConfig.apiBaseUrl}/api/siti-status';
       final sitiHeaders = <String, String>{'Authorization': 'Bearer ${AppConfig.authToken}'};
       final sw = Stopwatch()..start();
       final res = await http.get(Uri.parse(sitiUrl), headers: sitiHeaders).timeout(const Duration(seconds: 5));

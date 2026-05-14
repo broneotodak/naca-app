@@ -498,6 +498,75 @@ const server = http.createServer(async (req, res) => {
   }
 
   // =============================================
+  // SITI STATUS — aggregator (Surface 3 of siti-v2 gap, 2026-05-14)
+  // Replaces /api/siti/api/status + /api/siti/api/health that went 502
+  // when the v1 monolith on port 3800 was intentionally stopped.
+  // Reads agent_heartbeats for the two v2 processes (siti-ingest +
+  // siti-router) and derives a single "is Siti alive?" verdict. See
+  // docs/spec/siti-v2-endpoint-gap.md for the migration plan.
+  // =============================================
+
+  // GET /api/siti-status — { status, contacts, instance_slug, hostname,
+  //   ingest, router, age_sec }. Response shape covers all 3 Dart
+  // consumer sites (HQ services panel, HQ SITI agent row, CFG SITI test).
+  if (urlPath === '/api/siti-status' && req.method === 'GET') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    try {
+      const FRESH_THRESHOLD_SEC = 360; // matches agent_registry.siti.meta.monitor_threshold_sec
+      const { data: hbRows, error } = await supabase.from('agent_heartbeats')
+        .select('agent_name, status, meta, reported_at')
+        .in('agent_name', ['siti-ingest', 'siti-router']);
+      if (error) throw error;
+      const now = Date.now();
+      const lookup = {};
+      for (const r of (hbRows || [])) {
+        const ageSec = Math.floor((now - new Date(r.reported_at).getTime()) / 1000);
+        lookup[r.agent_name] = {
+          status: r.status,
+          age_sec: ageSec,
+          fresh: ageSec < FRESH_THRESHOLD_SEC,
+          meta: r.meta || {},
+        };
+      }
+      const ingest = lookup['siti-ingest'] || null;
+      const router = lookup['siti-router'] || null;
+      const bothFresh = !!ingest?.fresh && !!router?.fresh;
+      const eitherFresh = !!ingest?.fresh || !!router?.fresh;
+      const overallStatus = bothFresh ? 'connected' : (eitherFresh ? 'degraded' : 'offline');
+
+      // contacts — count of distinct WA contacts as a proxy for "Siti's
+      // address book size" (what the old v1 surface displayed).
+      let contacts = null;
+      try {
+        const { count } = await supabase.from('people').select('id', { count: 'exact', head: true }).not('phone', 'is', null);
+        contacts = count;
+      } catch { /* best-effort */ }
+
+      // Return shape covers every consumer field:
+      //   status        — site 1 + 3 (badge colour)
+      //   contacts      — site 1 (display)
+      //   instance_slug — site 1 (meta display)
+      //   hostname      — site 3 (CFG connection-test detail)
+      //   ingest/router — debug fields for future SITI tab use
+      //   age_sec       — whichever is more recent
+      const newestAge = Math.min(
+        ingest ? ingest.age_sec : Number.POSITIVE_INFINITY,
+        router ? router.age_sec : Number.POSITIVE_INFINITY,
+      );
+      json(res, {
+        status: overallStatus,
+        contacts,
+        instance_slug: 'siti-vps',
+        hostname: 'siti-vps (Hetzner)',
+        ingest: ingest ? { fresh: ingest.fresh, age_sec: ingest.age_sec, status: ingest.status, version: ingest.meta?.version || null } : null,
+        router: router ? { fresh: router.fresh, age_sec: router.age_sec, status: router.status, version: router.meta?.version || null } : null,
+        age_sec: Number.isFinite(newestAge) ? newestAge : null,
+      });
+    } catch (e) { json(res, { error: e.message }, 500); }
+    return;
+  }
+
+  // =============================================
   // NACA ENDPOINTS — Agent Dashboard Data
   // =============================================
 
