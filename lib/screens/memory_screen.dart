@@ -1351,10 +1351,12 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
   }
 
   // Returns null on success, error string on failure.
+  // Migrated 2026-05-14 from /api/siti/api/people/:id (port 3800, dead) to
+  // naca-backend native /api/people/:id — see docs/spec/siti-v2-endpoint-gap.md.
   Future<String?> _patchPerson(String id, Map<String, dynamic> body) async {
     try {
       final res = await http.patch(
-        Uri.parse('${AppConfig.apiBaseUrl}/api/siti/api/people/$id'),
+        Uri.parse('${AppConfig.apiBaseUrl}/api/people/$id'),
         headers: {
           'Authorization': 'Bearer ${AppConfig.authToken}',
           'content-type': 'application/json',
@@ -1374,7 +1376,7 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
   Future<String?> _deletePerson(String id) async {
     try {
       final res = await http.delete(
-        Uri.parse('${AppConfig.apiBaseUrl}/api/siti/api/people/$id'),
+        Uri.parse('${AppConfig.apiBaseUrl}/api/people/$id'),
         headers: {'Authorization': 'Bearer ${AppConfig.authToken}'},
       ).timeout(const Duration(seconds: 15));
       if (res.statusCode >= 400) {
