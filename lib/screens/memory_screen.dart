@@ -1738,11 +1738,13 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
     if (kind == 'image') {
       _showImageViewer(m);
     } else {
-      // For audio/video, opening the raw signed_url externally still works
-      // since the system browser/player isn't bound by HTTPS-page rules.
-      // Fall back to NACA blob URL if signed_url missing.
-      final url = (m['signed_url'] ?? '').toString();
-      _launchExternal(url.isNotEmpty ? url : '${AppConfig.apiBaseUrl}/api/media/$mediaId/blob');
+      // For audio/video, system Safari opens the URL — but it can't send our
+      // Bearer header. naca-backend's auth gate (2026-05-14) accepts the same
+      // token as a ?token= query param specifically for this case. Falls back
+      // to signed_url only if mediaId is missing (shouldn't happen).
+      final signedUrl = (m['signed_url'] ?? '').toString();
+      final blobUrl = '${AppConfig.apiBaseUrl}/api/media/$mediaId/blob?token=${AppConfig.authToken}';
+      _launchExternal(signedUrl.isNotEmpty ? signedUrl : blobUrl);
     }
   }
 

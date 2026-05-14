@@ -241,15 +241,22 @@ const server = http.createServer(async (req, res) => {
     return handleGithubWebhook(req, res);
   }
 
-  const auth = req.headers.authorization;
-  if (auth !== `Bearer ${AUTH_TOKEN}`) {
+  // Auth: prefer `Authorization: Bearer <token>` header. Also accept the same
+  // token as a `?token=` query param so external launchers (iOS Safari opening
+  // a video URL via url_launcher.externalApplication) can pass auth without
+  // headers. Same token value either way — no relaxation of access control.
+  // Only used today by /api/media/:id/blob (video/audio open-in-system-player).
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const urlPath = url.pathname;
+  const headerAuth = req.headers.authorization;
+  const queryToken = url.searchParams.get('token');
+  const authedByHeader = headerAuth === `Bearer ${AUTH_TOKEN}`;
+  const authedByQuery = queryToken === AUTH_TOKEN;
+  if (!authedByHeader && !authedByQuery) {
     res.writeHead(401, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Unauthorized' }));
     return;
   }
-
-  const url = new URL(req.url, `http://${req.headers.host}`);
-  const urlPath = url.pathname;
 
   if (urlPath === '/api/sessions' && req.method === 'GET') { json(res, sm.list()); return; }
 
