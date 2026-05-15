@@ -796,7 +796,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       <div class="stage-head">Stage 1</div>
       <div class="stage-name">💡 Draft</div>
       <div class="stage-actor">👤 Neo writes idea via NACA app SCHED tab</div>
-      <div class="stage-actor">OR claw-command-worker auto-generates via cloud APIs (Higgsfield, Veo, OpenArt, Kling)</div>
+      <div class="stage-actor">OR content-creator agent (Slave MBP) auto-generates via cloud APIs (Higgsfield, Veo, OpenArt, Kling, ElevenLabs)</div>
       <div class="stage-actor">→ <code>content_drafts</code> row written</div>
     </div>
     <div class="stage" style="border-color: var(--amber);">
@@ -1009,8 +1009,8 @@ graph TB
     end
 
     subgraph HOME[" 🏠 Home network · Cyberjaya "]
-        CLAW["<b>CLAW</b> · MBA M4 · 24GB<br/>100.93.159.1<br/>supervisor + claw-command-worker<br/>Studio role — media gen"]:::mac
-        SLAVE["<b>Slave MBP</b> · M1 Pro · 16GB<br/>100.93.211.9<br/>publisher-agent + browser-agent<br/>Publisher — API + Chromium"]:::mac
+        CLAW["<b>CLAW</b> · MBA M4 · 24GB<br/>100.93.159.1<br/>supervisor + claw-command-worker<br/>Worker/monitor — daily-content.sh kept as fallback"]:::mac
+        SLAVE["<b>Slave MBP</b> · M1 Pro · 16GB<br/>100.93.211.9<br/>content-creator + publisher-agent + browser-agent<br/>Creative Fleet — media gen + posting"]:::mac
         TRHOME["<b>tr-home</b> · Threadripper 7970X · 64GB<br/>RX 7900 XTX · 24GB VRAM · ROCm<br/>100.126.89.7<br/>reviewer · planner · dev — Phase 8<br/>+ Ollama qwen2.5:32b + FCC sidecar + Phase 6 rig"]:::mac
         MBP["<b>Neo's MBP</b><br/>operator · Claude Code"]:::client
         DOG
