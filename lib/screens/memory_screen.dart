@@ -18,6 +18,15 @@ class MemoryScreen extends StatefulWidget {
 class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderStateMixin {
   SupabaseClient get _sb => Supabase.instance.client;
 
+  // Operational/log categories that agents dump into neo-brain.memories but
+  // which are NOT curated knowledge — they flood the MEM tab newest-first.
+  // Biggest offender: naca-monitor writes a naca_monitor_snapshot row every
+  // ~33s (8k+ rows, 2.6k/day). The real fix is naca-monitor writing to its
+  // own table — flagged cross-session — but the app filters them out so the
+  // Memories list shows actual knowledge. PostgREST `not in` list.
+  static const String _operationalCatsFilter =
+      '(naca_monitor_snapshot,kg_populator_state,vps_git_drift,supervisor,__test_redact__)';
+
   late TabController _tabCtrl;
   final _searchCtrl = TextEditingController();
 
@@ -73,6 +82,7 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
     try {
       final data = await _sb.from('memories')
           .select('id, content, category, memory_type, importance, source, created_at, media_id')
+          .or('category.is.null,category.not.in.$_operationalCatsFilter')
           .order('created_at', ascending: false)
           .limit(50);
       if (mounted) setState(() { _memories = List<Map<String, dynamic>>.from(data); _loadingMemories = false; _memError = null; });
@@ -146,6 +156,7 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
       final memResults = await _sb.from('memories')
           .select('id, content, category, memory_type, importance, source, created_at')
           .ilike('content', '%$query%')
+          .or('category.is.null,category.not.in.$_operationalCatsFilter')
           .order('created_at', ascending: false)
           .limit(20);
       // Also search facts
