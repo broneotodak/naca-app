@@ -1163,44 +1163,73 @@ echo "TMPDIR=$TMP"
       const { data: rows, error } = await query;
       if (error) throw error;
 
-      // Enrich with person display name (best-effort)
-      const subjectIds = [...new Set((rows || []).map(r => r.subject_id).filter(Boolean))];
-      const peopleById = {};
-      if (subjectIds.length) {
-        const { data: ppl } = await supabase.from('people')
-          .select('id, display_name, push_name')
-          .in('id', subjectIds);
-        for (const p of (ppl || [])) peopleById[p.id] = p;
+      // ── person_name resolution ──────────────────────────────────────────
+      // The card shows the conversation partner. Two reasons we can't trust
+      // the frozen source_ref.sender_name:
+      //   1. outbound media has sender_name='Neo' (we want the recipient)
+      //   2. sender_name is captured once — it goes stale after a rename
+      // For DM media, source_ref.chat_jid IS the partner's full jid and the
+      // suffix tells us the identifier type. We resolve LIVE against the
+      // canonical resolve_person RPC (the same one @todak/memory's
+      // resolvePerson uses — single source of truth, no drift), then read
+      // the CURRENT people.display_name. Group media keeps the captured
+      // per-message sender_name (resolving each participant isn't worth it).
+      //
+      // chat_jid suffix → resolve_person identifier type:
+      //   ...@s.whatsapp.net → 'phone'   ...@lid → 'lid'   ...@g.us → group
+      const jidToIdentifier = (jid) => {
+        if (typeof jid !== 'string' || !jid.includes('@')) return null;
+        const [value, suffix] = [jid.slice(0, jid.indexOf('@')), jid.slice(jid.indexOf('@') + 1)];
+        if (!value) return null;
+        if (suffix === 's.whatsapp.net') return { type: 'phone', value };
+        if (suffix === 'lid') return { type: 'lid', value };
+        return null; // @g.us groups + anything else → no DM-partner resolution
+      };
+
+      // Collect distinct DM-partner identifiers, resolve each once via RPC.
+      const distinctKeys = new Map(); // "type:value" → {type,value}
+      for (const r of (rows || [])) {
+        const ident = jidToIdentifier(r.source_ref?.chat_jid);
+        if (ident) distinctKeys.set(`${ident.type}:${ident.value}`, ident);
       }
+      const nameByKey = {}; // "type:value" → current display_name
+      await Promise.all([...distinctKeys.entries()].map(async ([key, ident]) => {
+        try {
+          const { data: pid } = await supabase.rpc('resolve_person', { p_type: ident.type, p_value: ident.value });
+          if (!pid) return;
+          const { data: person } = await supabase.from('people')
+            .select('display_name, push_name').eq('id', pid).maybeSingle();
+          const name = person?.display_name || person?.push_name;
+          if (name) nameByKey[key] = name;
+        } catch { /* best-effort — fall back to captured name below */ }
+      }));
 
       // Match the v1 response shape so Dart code doesn't need changes beyond the URL.
       // signed_url is intentionally null — Dart uses /api/media/:id/blob for bytes.
-      const enriched = (rows || []).map(r => ({
-        id: r.id,
-        kind: r.kind,
-        mime_type: r.mime_type,
-        bytes: r.bytes,
-        transcript: r.transcript,
-        caption: r.caption,
-        created_at: r.created_at,
-        storage_url: r.storage_url,
-        signed_url: null,
-        source: r.source,
-        source_ref: r.source_ref,
-        subject_id: r.subject_id,
-        // person_name = WHO SENT this media. twin-ingest sets subject_id to
-        // OWNER_ID on every row ("this is in Neo's media collection"), so a
-        // subject_id→people lookup would render every card as "Broneotodak".
-        // The actual sender is in source_ref.sender_name (resolved at capture).
-        // Fall back to push_name, then the subject lookup for non-twin-ingest
-        // media that may use subject_id meaningfully.
-        person_name: r.source_ref?.sender_name
-          || r.source_ref?.push_name
-          || peopleById[r.subject_id]?.display_name
-          || peopleById[r.subject_id]?.push_name
-          || null,
-        similarity: null,
-      }));
+      const enriched = (rows || []).map(r => {
+        const ident = jidToIdentifier(r.source_ref?.chat_jid);
+        const liveName = ident ? nameByKey[`${ident.type}:${ident.value}`] : null;
+        return {
+          id: r.id,
+          kind: r.kind,
+          mime_type: r.mime_type,
+          bytes: r.bytes,
+          transcript: r.transcript,
+          caption: r.caption,
+          created_at: r.created_at,
+          storage_url: r.storage_url,
+          signed_url: null,
+          source: r.source,
+          source_ref: r.source_ref,
+          subject_id: r.subject_id,
+          // Live-resolved partner name (DM) → captured sender_name → push_name.
+          person_name: liveName
+            || r.source_ref?.sender_name
+            || r.source_ref?.push_name
+            || null,
+          similarity: null,
+        };
+      });
       json(res, {
         media: enriched,
         count: enriched.length,
