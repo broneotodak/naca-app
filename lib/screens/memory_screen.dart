@@ -1702,9 +1702,14 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
   Future<void> _jumpToSourceMemory(String mediaId) async {
     if (mediaId.isEmpty) return;
     try {
+      // twin-ingest links the memory to its media via metadata->>'media_id'
+      // (jsonb), NOT the top-level media_id column — that column is unused
+      // (0 rows populated). Querying it returned null every time → bogus
+      // "No source memory found". Fixed 2026-05-15 to filter the jsonb path.
       final mem = await _sb.from('memories')
-          .select('id, content, category, memory_type, importance, source, created_at, media_id')
-          .eq('media_id', mediaId)
+          .select('id, content, category, memory_type, importance, source, created_at, metadata')
+          .filter('metadata->>media_id', 'eq', mediaId)
+          .limit(1)
           .maybeSingle();
       if (mem == null) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(
