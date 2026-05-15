@@ -84,7 +84,7 @@ class _LockScreenState extends State<LockScreen> with TickerProviderStateMixin {
     _hackTimer = Timer.periodic(const Duration(milliseconds: 350), (timer) {
       if (_hackStep >= _hackMessages.length) {
         timer.cancel();
-        SoundService.instance.playBuilding(); // "Building online" after unlock
+        SoundService.instance.playSevaBuilding(); // Seva "Building" cue after unlock
         Future.delayed(const Duration(milliseconds: 500), () {
           if (mounted) widget.onUnlocked();
         });
