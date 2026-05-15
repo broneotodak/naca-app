@@ -79,12 +79,12 @@ class _LockScreenState extends State<LockScreen> with TickerProviderStateMixin {
 
   void _startHackSequence() {
     setState(() => _unlocking = true);
-    SoundService.instance.playDialUp(); // 90s modem sound during hacking animation
+    SoundService.instance.playSevaBuilding(); // Seva "Building" cue during the hack animation
 
     _hackTimer = Timer.periodic(const Duration(milliseconds: 350), (timer) {
       if (_hackStep >= _hackMessages.length) {
         timer.cancel();
-        SoundService.instance.playSevaBuilding(); // Seva "Building" cue after unlock
+        SoundService.instance.playBuilding(); // "Building online" cue once unlocked / online
         Future.delayed(const Duration(milliseconds: 500), () {
           if (mounted) widget.onUnlocked();
         });
