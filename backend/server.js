@@ -1188,7 +1188,17 @@ echo "TMPDIR=$TMP"
         source: r.source,
         source_ref: r.source_ref,
         subject_id: r.subject_id,
-        person_name: peopleById[r.subject_id]?.display_name || peopleById[r.subject_id]?.push_name || null,
+        // person_name = WHO SENT this media. twin-ingest sets subject_id to
+        // OWNER_ID on every row ("this is in Neo's media collection"), so a
+        // subject_id→people lookup would render every card as "Broneotodak".
+        // The actual sender is in source_ref.sender_name (resolved at capture).
+        // Fall back to push_name, then the subject lookup for non-twin-ingest
+        // media that may use subject_id meaningfully.
+        person_name: r.source_ref?.sender_name
+          || r.source_ref?.push_name
+          || peopleById[r.subject_id]?.display_name
+          || peopleById[r.subject_id]?.push_name
+          || null,
         similarity: null,
       }));
       json(res, {
