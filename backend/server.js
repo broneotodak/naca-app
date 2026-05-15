@@ -1137,12 +1137,19 @@ echo "TMPDIR=$TMP"
       if (personId) query = query.eq('subject_id', personId);
       if (since) query = query.gte('created_at', since);
 
-      // Hide archived rows by default (e.g. 1,184 Status broadcast media archived
-      // 2026-05-14 — makeup/lipstick/food ad bytes that twin-ingest captured before
-      // the @broadcast filter regression was fixed in broneotodak/neo-twin#1).
-      // Pass ?include_archived=1 to override (e.g. for audit / restore tools).
+      // Hide archived rows by default. Two independent archive flags both
+      // honored here (treated equivalently — pass include_archived=1 to see both):
+      //  1. metadata.archived=true  — set by manual cleanup (e.g. 2026-05-14
+      //     when 1,184 Status broadcast rows were swept after broneotodak/
+      //     neo-twin#1 plugged the @broadcast filter regression).
+      //  2. metadata.from_archived_chat=true — set at capture time by
+      //     twin-ingest (broneotodak/neo-twin#2) when the source chat is
+      //     archived in Neo's WhatsApp UI. Bytes still flow to NAS-MinIO so
+      //     unarchiving in WA is reversible; the flag just hides them by default.
       if (url.searchParams.get('include_archived') !== '1') {
-        query = query.or('metadata->>archived.is.null,metadata->>archived.eq.false');
+        query = query
+          .or('metadata->>archived.is.null,metadata->>archived.eq.false')
+          .or('metadata->>from_archived_chat.is.null,metadata->>from_archived_chat.eq.false');
       }
 
       // Best-effort text fallback while semantic search lives on a dead endpoint.
