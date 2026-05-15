@@ -1576,7 +1576,6 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
     // signed_url points at http://100.85.18.97:9000/... which Chrome blocks).
     final mediaId = (m['id'] ?? '').toString();
     final blobUrl = mediaId.isNotEmpty ? '${AppConfig.apiBaseUrl}/api/media/$mediaId/blob' : '';
-    final signedUrl = (m['signed_url'] ?? '').toString();
     final bytes = (m['bytes'] is num) ? (m['bytes'] as num).toInt() : 0;
     final createdAt = m['created_at']?.toString();
     final similarity = m['similarity'];
@@ -1595,10 +1594,14 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
     };
 
     final body = transcript.isNotEmpty ? transcript : caption;
-    final hasSigned = signedUrl.isNotEmpty;
+    // Tappable as long as we have a media id — open path uses the
+    // /api/media/:id/blob endpoint (with ?token=), not signed_url.
+    // (signed_url is always null from naca-backend's /api/media — gating
+    //  the tap on it left every card dead. Regression fixed 2026-05-15.)
+    final canOpen = mediaId.isNotEmpty;
 
     return GestureDetector(
-      onTap: hasSigned ? () => _openMedia(m) : null,
+      onTap: canOpen ? () => _openMedia(m) : null,
       child: Container(
         margin: const EdgeInsets.only(bottom: 8),
         decoration: BoxDecoration(
@@ -1678,6 +1681,27 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
                       child: Text('image load failed', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.red)),
                     ),
                   ),
+                ),
+              ),
+            ),
+            // Video — Flutter has no cheap inline thumbnail; show a tappable
+            // play placeholder so the card is obviously a playable video.
+            // Tapping the card opens the blob URL (?token=) in the system player.
+            if (kind == 'video' && blobUrl.isNotEmpty) Padding(
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
+              child: Container(
+                height: 88,
+                decoration: BoxDecoration(
+                  color: Colors.black,
+                  border: Border.all(color: const Color(0xFFFF00FF).withValues(alpha: 0.4)),
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.play_circle_outline, size: 30, color: Color(0xFFFF00FF)),
+                    const SizedBox(height: 3),
+                    Text('TAP TO PLAY', style: HackerTheme.monoNoGlow(size: 8, color: const Color(0xFFFF00FF))),
+                  ],
                 ),
               ),
             ),
