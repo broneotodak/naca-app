@@ -1239,6 +1239,66 @@ echo "TMPDIR=$TMP"
     return;
   }
 
+  // =============================================
+  // SITI TAB — Surface 4 Tier A read endpoints (2026-05-15)
+  // Replace /api/siti/api/{contacts,messages,status} that went 502 when the
+  // v1 monolith on port 3800 stopped. See docs/spec/surface-4-siti-tab-scope.md.
+  // =============================================
+
+  // GET /api/wa-messages?limit=&offset= — WhatsApp message history.
+  // Reads neo-brain.wa_messages, maps the denormalised v2 columns to the
+  // shape siti_screen.dart's message list renders (direction/contact_name/
+  // body/is_group/handled). Archived rows excluded by default.
+  if (urlPath === '/api/wa-messages' && req.method === 'GET') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    try {
+      const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') || '50'), 1), 200);
+      const offset = Math.max(parseInt(url.searchParams.get('offset') || '0'), 0);
+      let q = supabase.from('wa_messages')
+        .select('id, created_at, content, chat_jid, sender_phone, push_name, is_group, is_from_self, handled:metadata->handled_by_neo_twin, wa_message_id, media_type, has_media')
+        .order('created_at', { ascending: false })
+        .range(offset, offset + limit - 1);
+      // Hide archived / archived-chat rows (same treatment as /api/media).
+      if (url.searchParams.get('include_archived') !== '1') {
+        q = q.eq('archived', false).eq('archived_chat', false);
+      }
+      const { data, error } = await q;
+      if (error) throw error;
+      const messages = (data || []).map(r => ({
+        id: r.id,
+        direction: r.is_from_self ? 'out' : 'in',
+        contact_name: r.push_name || r.sender_phone || '?',
+        from_phone: r.sender_phone,
+        body: r.content,
+        is_group: r.is_group === true,
+        handled: r.handled || '',
+        chat_jid: r.chat_jid,
+        has_media: r.has_media === true,
+        media_type: r.media_type,
+        created_at: r.created_at,
+      }));
+      json(res, { messages, count: messages.length });
+    } catch (e) { json(res, { error: e.message }, 500); }
+    return;
+  }
+
+  // GET /api/contacts — WhatsApp contact roster.
+  // Reads neo-brain.contacts; columns already match what the SITI tab's
+  // contact cards render (kind/name/phone/permission/auto_reply_enabled/
+  // project_scope/id). Newest-seen first.
+  if (urlPath === '/api/contacts' && req.method === 'GET') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    try {
+      const { data, error } = await supabase.from('contacts')
+        .select('id, person_id, phone, jid, lid, name, push_name, kind, permission, persona_override, auto_reply_enabled, reply_mode, project_scope, notes, last_seen_at')
+        .order('last_seen_at', { ascending: false, nullsFirst: false })
+        .limit(500);
+      if (error) throw error;
+      json(res, { contacts: data || [], count: (data || []).length });
+    } catch (e) { json(res, { error: e.message }, 500); }
+    return;
+  }
+
   // GET /api/media-batch?ids=uuid1,uuid2 — fetch media metadata for memory cross-links
   // Returns kind/mime/transcript/caption only (no signed URLs — those still come from Siti).
   if (urlPath === '/api/media-batch' && req.method === 'GET') {
