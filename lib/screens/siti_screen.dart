@@ -69,21 +69,23 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
 
   Future<void> _loadAll() async {
     try {
-      final health = await _fetchJson('/api/health');
-      final status = await _fetchJson('/api/status');
-      // people list moved to MEM → PEOPLE tab (direct neo-brain); no longer fetched here
-      final contactsData = await _fetchJson('/api/contacts');
-      final settingsData = await _fetchJson('/api/settings');
-      final toolsData = await _fetchJson('/api/tools');
+      // Surface 4 Tier A (2026-05-15): status/messages/contacts migrated off
+      // the dead /api/siti/* proxy onto naca-backend native endpoints.
+      //   /api/siti-status — aggregated health (Surface 3 endpoint)
+      //   /api/wa-messages — message history from wa_messages
+      //   /api/contacts    — contact roster from the contacts table
+      // settings + tools stay on the legacy proxy (Tier B / deferred) and
+      // degrade gracefully — those panels just render empty until migrated.
+      final status = await _fetchNaca('/api/siti-status');
+      final messagesData = await _fetchNaca('/api/wa-messages?limit=50');
+      final contactsData = await _fetchNaca('/api/contacts');
+      final settingsData = await _fetchJson('/api/settings'); // Tier B — not yet migrated
+      final toolsData = await _fetchJson('/api/tools');       // deferred
 
       if (mounted) {
-        final merged = <String, dynamic>{
-          ...?health,
-          ...?status,
-        };
         setState(() {
-          _health = merged.isNotEmpty ? merged : null;
-          _recentMessages = _extractMessages(status);
+          _health = status;
+          _recentMessages = _safeList(messagesData, 'messages');
           _messageOffset = _recentMessages.length;
           _hasMoreMessages = _recentMessages.length >= 50;
           _contacts = _safeList(contactsData, 'contacts');
@@ -92,7 +94,7 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
             _settings = Map<String, dynamic>.from(settingsData['settings'] as Map);
           }
           _loading = false;
-          _error = (health == null && status == null) ? 'Cannot reach Siti' : null;
+          _error = status == null ? 'Cannot reach Siti' : null;
         });
         _applyPollInterval();
       }
@@ -106,15 +108,25 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
     return List<Map<String, dynamic>>.from(data[key] as List);
   }
 
-  List<Map<String, dynamic>> _extractMessages(Map<String, dynamic>? status) {
-    if (status == null || status['messages'] == null) return [];
-    return List<Map<String, dynamic>>.from(status['messages'] as List);
-  }
 
   Future<Map<String, dynamic>?> _fetchJson(String path) async {
     try {
       final headers = {'Authorization': 'Bearer ${AppConfig.authToken}'};
       final res = await http.get(Uri.parse('$_sitiBase$path'), headers: headers).timeout(const Duration(seconds: 20));
+      if (res.statusCode < 400) return jsonDecode(res.body);
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // Fetch a naca-backend NATIVE endpoint (no /api/siti proxy prefix).
+  // Surface 4 Tier A migrated status/messages/contacts off the dead
+  // v1-monolith proxy onto naca-backend's own endpoints.
+  Future<Map<String, dynamic>?> _fetchNaca(String path) async {
+    try {
+      final headers = {'Authorization': 'Bearer ${AppConfig.authToken}'};
+      final res = await http.get(Uri.parse('${AppConfig.apiBaseUrl}$path'), headers: headers).timeout(const Duration(seconds: 20));
       if (res.statusCode < 400) return jsonDecode(res.body);
       return null;
     } catch (_) {
@@ -703,7 +715,7 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
     if (_loadingMoreMessages) return;
     setState(() => _loadingMoreMessages = true);
     try {
-      final data = await _fetchJson('/api/messages?limit=50&offset=$_messageOffset');
+      final data = await _fetchNaca('/api/wa-messages?limit=50&offset=$_messageOffset');
       if (data != null && mounted) {
         final newMessages = _safeList(data, 'messages');
         setState(() {
