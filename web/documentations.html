@@ -346,6 +346,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
   <div class="nav-section-label">↓ Foundations</div>
   <a href="#what">What is NACA?</a>
+  <a href="#architecture">Architecture map</a>
   <a href="#how">How it works</a>
   <a href="#brain">🧠 neo-brain</a>
 
@@ -395,6 +396,77 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     Eight specialist AI agents run 24/7 — one watches WhatsApp (Siti), one writes code (dev-agent), one reviews PRs (reviewer), one watches the fleet (supervisor), and so on. They coordinate through a shared memory database (<strong>neo-brain</strong>) and report up to Neo via WhatsApp. Neo approves big decisions ("merge this PR", "post this to LinkedIn") with a one-word reply, and the fleet handles the rest.
     <br/><br/>
     <em>Built as a personal project. The end-state is a native app on Neo's phone (Flutter, currently in early build) — if it ever gets productised for a company, the whole template just gets cloned.</em>
+  </div>
+
+  <!-- ARCHITECTURE AT A GLANCE -->
+  <div class="section" id="architecture">
+    <h2>Architecture at a glance</h2>
+    <p>The whole ecosystem on one screen — for when "MCP, API, SDK… whew" needs to become a 30-second explanation.</p>
+  </div>
+
+  <video autoplay loop muted playsinline poster="assets/architecture-hero.png"
+         style="width:100%; border-radius:14px; display:block; margin:8px 0 4px; border:1px solid #1e293b;">
+    <source src="assets/architecture-loop.mp4" type="video/mp4">
+  </video>
+
+  <div class="callout">
+    <strong>In one breath:</strong> neo-brain <em>remembers</em>, the tools <em>do</em>, MCP plugs the tools into any AI,
+    interfaces are the front doors people talk to, and the agent fleet works on its own.
+  </div>
+
+  <div class="diagram">
+    <div class="mermaid">
+graph TB
+    classDef iface fill:#3a1d4a,stroke:#8b5cf6,color:#e0e0e0
+    classDef router fill:#1e293b,stroke:#06b6d4,color:#e0e0e0
+    classDef agent fill:#1e293b,stroke:#10b981,color:#e0e0e0
+    classDef tool fill:#1e293b,stroke:#f59e0b,color:#e0e0e0
+    classDef brain fill:#0c1e3e,stroke:#8b5cf6,color:#e0e0e0
+    classDef ext fill:#1e293b,stroke:#475569,color:#9ca3af
+
+    PERSON["👤 A person · a message"]:::iface
+
+    subgraph IF[" Interfaces — front doors (Kay calls these 'channels') "]
+        SITI["Siti · WhatsApp"]:::iface
+        APP["NACA App · mobile / web"]:::iface
+    end
+
+    ROUTER["🧭 Router<br/>reads the message, picks the right specialist"]:::router
+
+    subgraph FLEET[" 🤖 Autonomous agent fleet — works 24/7 "]
+        AG["planner · reviewer · dev · verifier<br/>timekeeper · supervisor · …"]:::agent
+    end
+
+    TOOLS["🧰 @naca/tools<br/>~25 capabilities — the verbs"]:::tool
+    MCP["🔌 MCP — universal adapter:<br/>any AI client can call the tools"]:::tool
+    EXT["External AI clients<br/>Claude Desktop · Claude Code"]:::ext
+    SDK["📚 SDKs — the plumbing<br/>@todak/memory · @naca/core"]:::brain
+    BRAIN["🧠 neo-brain<br/>Postgres + pgvector · RAG"]:::brain
+
+    PERSON --> IF
+    IF --> ROUTER
+    ROUTER --> FLEET
+    ROUTER --> TOOLS
+    FLEET --> TOOLS
+    EXT --> MCP
+    MCP --> TOOLS
+    TOOLS --> SDK
+    FLEET --> SDK
+    SDK --> BRAIN
+    </div>
+  </div>
+
+  <div class="callout">
+    <strong>Jargon, decoded</strong> — the words that make this sound harder than it is:
+    <ul style="margin-top:8px; line-height:1.9;">
+      <li><strong>API</strong> — two programs talking over the network.</li>
+      <li><strong>SDK</strong> — pre-built plumbing code so you don't rewrite it everywhere (ours: <code>@todak/memory</code>, <code>@naca/core</code>).</li>
+      <li><strong>MCP</strong> — a universal plug; lets any AI client use our tools without custom wiring.</li>
+      <li><strong>Router</strong> — the receptionist; reads a message and routes it to the right specialist.</li>
+      <li><strong>Agent</strong> — a worker that runs 24/7 on its own; nobody pokes it.</li>
+      <li><strong>Interface / Channel</strong> — a front door (Siti on WhatsApp, the NACA app).</li>
+      <li><strong>CTK</strong> — the workshop: internal dev toolkit (scripts, SDK source, rules). It builds the product; it isn't the product.</li>
+    </ul>
   </div>
 
   <!-- HOW NACA WORKS -->
