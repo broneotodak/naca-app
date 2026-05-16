@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>NACA · Architecture — the whole thing on one screen</title>
+<meta name="description" content="Neo's Agentic Centre Applications — the architecture, explained in plain English without the jargon pile-up." />
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0a0f; --surface: #13131c; --surface-2: #1a1a26; --border: #26263a;
+    --text: #e8e8ef; --muted: #969cae; --cyan: #22d3ee; --violet: #a78bfa;
+    --green: #34d399; --amber: #fbbf24; --pink: #f472b6;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  code, .mono { font-family: "SF Mono", ui-monospace, "Cascadia Code", Menlo, monospace; }
+  code { background: var(--surface-2); color: var(--cyan); padding: 1px 6px; border-radius: 5px; font-size: 0.86em; }
+  a { color: var(--cyan); }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 22px; }
+
+  /* hero */
+  .hero { position: relative; width: 100%; aspect-ratio: 16/9; max-height: 460px; overflow: hidden;
+    border-bottom: 1px solid var(--border); background: #000; }
+  .hero video, .hero img { width: 100%; height: 100%; object-fit: cover; display: block; opacity: 0.72; }
+  .hero-overlay { position: absolute; inset: 0; display: flex; flex-direction: column;
+    justify-content: flex-end; padding: 36px 22px;
+    background: linear-gradient(180deg, rgba(10,10,15,0.1) 0%, rgba(10,10,15,0.85) 100%); }
+  .hero-overlay .inner { max-width: 860px; margin: 0 auto; width: 100%; }
+  .eyebrow { color: var(--cyan); font-size: 0.78rem; letter-spacing: 0.18em; text-transform: uppercase; }
+  h1 { font-size: clamp(1.9rem, 5vw, 3rem); line-height: 1.1; margin: 6px 0; }
+  .hero-sub { color: var(--muted); font-size: 1.02rem; }
+
+  section { padding: 44px 0; border-bottom: 1px solid var(--border); }
+  h2 { font-size: 1.5rem; margin-bottom: 6px; }
+  h2 .num { color: var(--cyan); font-family: "SF Mono", monospace; font-size: 1.1rem; margin-right: 8px; }
+  .lead { color: var(--muted); margin-bottom: 22px; }
+
+  .pitch { background: linear-gradient(135deg, rgba(34,211,238,0.08), rgba(167,139,250,0.08));
+    border: 1px solid var(--border); border-left: 3px solid var(--cyan);
+    border-radius: 12px; padding: 22px 24px; font-size: 1.12rem; }
+  .pitch em { color: var(--cyan); font-style: normal; font-weight: 600; }
+
+  .mermaid { display: flex; justify-content: center; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 12px; padding: 22px; }
+
+  /* layer stack */
+  .layers { display: flex; flex-direction: column; gap: 8px; }
+  .layer { display: flex; gap: 16px; align-items: flex-start; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .layer .n { font-family: "SF Mono", monospace; font-weight: 700; font-size: 1.1rem;
+    min-width: 28px; text-align: center; }
+  .layer h3 { font-size: 1rem; margin-bottom: 2px; }
+  .layer p { color: var(--muted); font-size: 0.92rem; }
+  .l7 .n { color: var(--green); } .l6 .n { color: var(--violet); }
+  .l5 .n, .l4 .n { color: var(--amber); } .l3 .n, .l2 .n, .l1 .n { color: var(--cyan); }
+
+  /* jargon */
+  .jargon { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .jargon div { background: var(--surface); border: 1px solid var(--border);
+    border-radius: 9px; padding: 12px 14px; font-size: 0.92rem; }
+  .jargon b { color: var(--cyan); }
+  .jargon span { color: var(--muted); }
+
+  /* flow */
+  .flow { counter-reset: step; display: flex; flex-direction: column; gap: 10px; }
+  .flow .step { display: flex; gap: 14px; align-items: flex-start; }
+  .flow .step::before { counter-increment: step; content: counter(step);
+    background: var(--cyan); color: #07212a; font-weight: 700; font-family: "SF Mono", monospace;
+    width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center;
+    justify-content: center; flex-shrink: 0; font-size: 0.85rem; }
+  .flow .step p { padding-top: 2px; }
+  .flow .quote { color: var(--violet); font-style: italic; margin-bottom: 6px; }
+
+  footer { padding: 36px 0 56px; text-align: center; color: var(--muted); font-size: 0.92rem; }
+  .btn { display: inline-block; margin-top: 10px; background: var(--surface-2);
+    border: 1px solid var(--border); color: var(--text); padding: 9px 18px;
+    border-radius: 8px; text-decoration: none; }
+  .btn:hover { border-color: var(--cyan); }
+  @media (max-width: 600px) { .jargon { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <video autoplay loop muted playsinline poster="assets/architecture-hero.png">
+    <source src="assets/architecture-loop.mp4" type="video/mp4" />
+  </video>
+  <div class="hero-overlay">
+    <div class="inner">
+      <div class="eyebrow">Neo's Agentic Centre Applications</div>
+      <h1>NACA, on one screen</h1>
+      <div class="hero-sub">The whole architecture — for when "MCP, API, SDK… whew" needs to become a 30-second explanation.</div>
+    </div>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <section>
+    <div class="pitch">
+      <strong>In one breath:</strong> neo-brain <em>remembers</em>, the tools <em>do</em>,
+      MCP plugs the tools into any AI, interfaces are the front doors people talk to,
+      and the agent fleet works on its own.
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="num">01</span>The map</h2>
+    <p class="lead">A message comes in a front door, gets routed, and either an agent or a tool handles it — all reading and writing one shared brain.</p>
+    <div class="mermaid">
+graph TB
+    classDef iface fill:#3a1d4a,stroke:#a78bfa,color:#e8e8ef
+    classDef router fill:#13131c,stroke:#22d3ee,color:#e8e8ef
+    classDef agent fill:#13131c,stroke:#34d399,color:#e8e8ef
+    classDef tool fill:#13131c,stroke:#fbbf24,color:#e8e8ef
+    classDef brain fill:#0c1e3e,stroke:#a78bfa,color:#e8e8ef
+    classDef ext fill:#13131c,stroke:#475569,color:#969cae
+
+    PERSON["👤 A person · a message"]:::iface
+
+    subgraph IF[" Interfaces — the front doors "]
+        SITI["Siti · WhatsApp"]:::iface
+        APP["NACA App · mobile / web"]:::iface
+    end
+
+    ROUTER["🧭 Router<br/>reads the message, picks the specialist"]:::router
+
+    subgraph FLEET[" 🤖 Autonomous agent fleet — works 24/7 "]
+        AG["planner · reviewer · dev · verifier<br/>timekeeper · supervisor · …"]:::agent
+    end
+
+    TOOLS["🧰 @naca/tools<br/>~25 capabilities — the verbs"]:::tool
+    MCP["🔌 MCP — universal adapter<br/>any AI client can call the tools"]:::tool
+    EXT["External AI clients<br/>Claude Desktop · Claude Code"]:::ext
+    SDK["📚 SDKs — the plumbing<br/>@todak/memory · @naca/core"]:::brain
+    BRAIN["🧠 neo-brain<br/>Postgres + pgvector · RAG"]:::brain
+
+    PERSON --> IF
+    IF --> ROUTER
+    ROUTER --> FLEET
+    ROUTER --> TOOLS
+    FLEET --> TOOLS
+    EXT --> MCP
+    MCP --> TOOLS
+    TOOLS --> SDK
+    FLEET --> SDK
+    SDK --> BRAIN
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="num">02</span>The seven layers</h2>
+    <p class="lead">Bottom to top. Each layer has one clear job.</p>
+    <div class="layers">
+      <div class="layer l1"><div class="n">1</div><div><h3>🧠 neo-brain</h3><p>One Postgres + pgvector database. Memory (hybrid RAG retrieval) and the fleet's operational data.</p></div></div>
+      <div class="layer l2"><div class="n">2</div><div><h3>📚 SDKs — <code>@todak/memory</code>, <code>@naca/core</code></h3><p>The code everything uses to talk to neo-brain. Never raw SQL.</p></div></div>
+      <div class="layer l3"><div class="n">3</div><div><h3>🧰 <code>@naca/tools</code></h3><p>~25 capabilities — the <em>verbs</em>: search memory, send email, read a URL, generate an image.</p></div></div>
+      <div class="layer l4"><div class="n">4</div><div><h3>🔌 MCP</h3><p>Exposes the tools so any AI client can call them — without custom wiring per client.</p></div></div>
+      <div class="layer l5"><div class="n">5</div><div><h3>🧭 Router</h3><p>Reads an incoming message, classifies the intent, routes it to the right specialist.</p></div></div>
+      <div class="layer l6"><div class="n">6</div><div><h3>🚪 Interfaces</h3><p>The front doors people talk to — Siti on WhatsApp, the NACA app. (Some setups call these "channels.")</p></div></div>
+      <div class="layer l7"><div class="n">7</div><div><h3>🤖 Agents</h3><p>The autonomous fleet — planner, reviewer, dev, verifier, timekeeper, supervisor. They do work unattended. <strong>This layer is the autonomy step</strong> — the difference between "an AI you ask" and "a crew that works while you sleep."</p></div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="num">03</span>Jargon, decoded</h2>
+    <p class="lead">The words that make this sound harder than it is.</p>
+    <div class="jargon">
+      <div><b>API</b> — <span>two programs talking over the network.</span></div>
+      <div><b>SDK</b> — <span>pre-built plumbing code so you don't rewrite it everywhere.</span></div>
+      <div><b>MCP</b> — <span>a universal plug; lets any AI client use our tools.</span></div>
+      <div><b>Router</b> — <span>the receptionist; routes a message to the right specialist.</span></div>
+      <div><b>Agent</b> — <span>a worker that runs 24/7 on its own; nobody pokes it.</span></div>
+      <div><b>Interface / Channel</b> — <span>a front door (WhatsApp, the app).</span></div>
+      <div><b>CTK</b> — <span>the workshop: internal dev toolkit. It builds the product; it isn't the product.</span></div>
+      <div><b>neo-brain</b> — <span>the one memory + operational database.</span></div>
+    </div>
+  </section>
+
+  <section style="border-bottom:none;">
+    <h2><span class="num">04</span>How a request actually flows</h2>
+    <p class="lead">Nothing abstract — one real example, start to finish.</p>
+    <div class="flow">
+      <p class="quote">Neo WhatsApps Siti: "remind me to call Lan at 5pm."</p>
+      <div class="step"><p><strong>Siti</strong> (interface) receives the message.</p></div>
+      <div class="step"><p>The <strong>Router</strong> classifies it — intent: <code>REMINDER</code>.</p></div>
+      <div class="step"><p>The <strong>timekeeper agent</strong> schedules it — a row in neo-brain, written via the <strong>SDK</strong>.</p></div>
+      <div class="step"><p>At 5pm, timekeeper fires, calls the <em>send-message</em> <strong>tool</strong>, and <strong>Siti</strong> delivers the reminder.</p></div>
+      <p style="color:var(--green); margin-top:4px;">No human touched steps 2–4. That is the fleet.</p>
+    </div>
+  </section>
+
+</div>
+
+<footer>
+  <div>NACA — Neo's Agentic Centre Applications · maintained by the fleet</div>
+  <a class="btn" href="documentations.html">Want the deep reference? → Full documentation</a>
+</footer>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'dark',
+    themeVariables: {
+      primaryColor: '#13131c', primaryTextColor: '#e8e8ef', primaryBorderColor: '#22d3ee',
+      lineColor: '#475569', background: '#0a0a0f', mainBkg: '#13131c', fontSize: '13px',
+    },
+    flowchart: { curve: 'basis', padding: 18 },
+  });
+</script>
+
+</body>
+</html>
