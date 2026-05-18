@@ -1355,6 +1355,60 @@ echo "TMPDIR=$TMP"
     return;
   }
 
+  // GET /api/content-drafts/:id/media?idx=N — stream a content-draft's media.
+  // content-creator writes daily videos to the Ugreen NAS filesystem
+  // (/volume1/Todak Studios/naca/<path>), recorded in content_drafts.media_paths
+  // as [{kind,path,store:'nas'}]. There's no `media` table row and no MinIO
+  // object — so /api/media/:id/blob can't serve it. naca-backend SSHes to the
+  // NAS (id_naca_nas key, already provisioned) and streams the file. The SCHED
+  // tab's draft card opens this. ?token= supported for the external player.
+  const draftMedia = urlPath.match(/^\/api\/content-drafts\/([0-9a-f-]{36})\/media$/);
+  if (draftMedia && req.method === 'GET') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    const id = draftMedia[1];
+    try {
+      const idx = Math.max(parseInt(url.searchParams.get('idx') || '0'), 0);
+      const { data: draft, error } = await supabase.from('content_drafts')
+        .select('media_paths').eq('id', id).maybeSingle();
+      if (error) { json(res, { error: error.message }, 500); return; }
+      if (!draft) { json(res, { error: 'draft not found' }, 404); return; }
+      const item = Array.isArray(draft.media_paths) ? draft.media_paths[idx] : null;
+      if (!item || !item.path) { json(res, { error: 'no media at idx ' + idx }, 404); return; }
+      if (item.store && item.store !== 'nas') { json(res, { error: `unsupported store '${item.store}'` }, 400); return; }
+      // Path safety — only content/ paths, no traversal, no shell metachars.
+      const relPath = String(item.path);
+      if (!/^content\/[\w./-]+\.(mp4|mov|jpg|jpeg|png|webp|m4a|mp3)$/i.test(relPath) || relPath.includes('..')) {
+        json(res, { error: 'invalid media path' }, 400); return;
+      }
+      const ext = relPath.split('.').pop().toLowerCase();
+      const ctype = ({ mp4: 'video/mp4', mov: 'video/quicktime', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+        png: 'image/png', webp: 'image/webp', m4a: 'audio/mp4', mp3: 'audio/mpeg' })[ext] || 'application/octet-stream';
+      const remotePath = `/volume1/Todak Studios/naca/${relPath}`;
+      // Stream via SSH+cat. spawn arg-array (no shell on our side); the remote
+      // path is single-quoted so the NAS shell treats spaces as one arg.
+      const proc = spawn('ssh', [
+        '-i', `${process.env.HOME}/.ssh/id_naca_nas`,
+        '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10',
+        'Neo@100.85.18.97', `cat '${remotePath}'`,
+      ], { timeout: 120_000 });
+      let headerSent = false, errBuf = '';
+      proc.stdout.once('data', () => {
+        if (!headerSent) { headerSent = true; res.writeHead(200, { 'Content-Type': ctype, 'Cache-Control': 'private, max-age=300' }); }
+      });
+      proc.stdout.pipe(res);
+      proc.stderr.on('data', d => { errBuf += d.toString(); });
+      proc.on('close', code => {
+        if (!headerSent) {
+          json(res, { error: `nas fetch failed (exit ${code})`, detail: errBuf.slice(0, 200) }, 502);
+        } else if (!res.writableEnded) { res.end(); }
+      });
+      proc.on('error', err => {
+        if (!headerSent) { json(res, { error: 'ssh spawn failed: ' + err.message }, 502); }
+      });
+    } catch (e) { json(res, { error: e.message }, 500); }
+    return;
+  }
+
   // PATCH /api/content-drafts/:id — edit caption (only on pending_approval)
   const draftEdit = urlPath.match(/^\/api\/content-drafts\/([0-9a-f-]{36})$/);
   if (draftEdit && req.method === 'PATCH') {

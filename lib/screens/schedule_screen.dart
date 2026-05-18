@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:url_launcher/url_launcher.dart';
 import '../config.dart';
 import '../theme.dart';
 
@@ -916,6 +917,30 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 10),
             child: Text('// scene: $scene', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText), maxLines: 2, overflow: TextOverflow.ellipsis),
           ),
+          // Media — content-creator drafts carry a NAS video. naca-backend
+          // streams it via /api/content-drafts/:id/media (SSH to NAS). Tap
+          // opens it in the system player.
+          if (mediaKind.isNotEmpty && id.isNotEmpty) Padding(
+            padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
+            child: GestureDetector(
+              onTap: () => _openDraftMedia(id),
+              child: Container(
+                height: 84,
+                decoration: BoxDecoration(
+                  color: Colors.black,
+                  border: Border.all(color: HackerTheme.cyan.withValues(alpha: 0.4)),
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(_mediaIcon(mediaKind), size: 26, color: HackerTheme.cyan),
+                    const SizedBox(height: 3),
+                    Text('TAP TO PLAY', style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.cyan)),
+                  ],
+                ),
+              ),
+            ),
+          ),
           // Action row
           Padding(
             padding: const EdgeInsets.fromLTRB(10, 6, 10, 8),
@@ -993,6 +1018,24 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     'audio' => Icons.audiotrack,
     _ => Icons.attachment,
   };
+
+  // Open a content-draft's media. naca-backend's /api/content-drafts/:id/media
+  // SSH-streams the file off the NAS. ?token= lets the external player auth
+  // without a header (same pattern as the MEDIA tab video fix).
+  Future<void> _openDraftMedia(String draftId) async {
+    final url = '${AppConfig.apiBaseUrl}/api/content-drafts/$draftId/media?token=${AppConfig.authToken}';
+    try {
+      if (!await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication)) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open draft media'), backgroundColor: HackerTheme.red),
+        );
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Open failed: $e'), backgroundColor: HackerTheme.red),
+      );
+    }
+  }
 
   void _showApproveDialog(Map<String, dynamic> draft) {
     final id = draft['id']?.toString() ?? '';
