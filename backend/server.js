@@ -1594,8 +1594,14 @@ echo "TMPDIR=$TMP"
         // 2. Insert a scheduled_action per channel (claw-mac dispatch).
         // Each platform gets its own scheduled_action so partial-success
         // (e.g. LinkedIn ok, IG fails) is visible per row.
-        const mediaPath = (draft.media_paths?.[0]?.path) || null;
-        const mediaKind = (draft.media_paths?.[0]?.kind) || 'video';
+        const media0 = draft.media_paths?.[0] || {};
+        const mediaPath = media0.path || null;
+        const mediaKind = media0.kind || 'video';
+        // content-creator writes drafts to the Ugreen NAS (store:'nas'); older
+        // local drafts carry no store marker. naca-app reports where the file
+        // lives — it must NOT hardcode a host; the publisher worker decides how
+        // to fetch it (a 'nas' file is staged worker-side before posting).
+        const mediaStore = media0.store || 'local';
         const insertedActions = [];
         for (const channel of cleanCh) {
           const desc = `${channel} post: ${(draft.caption || '').slice(0, 50)}`;
@@ -1610,7 +1616,7 @@ echo "TMPDIR=$TMP"
                 caption: draft.caption,
                 media_path: mediaPath,
                 media_kind: mediaKind,
-                media_host: 'claw-mac',
+                media_store: mediaStore,
                 draft_id: draftId,
                 idempotency_key: `draft-${draftId}-${channel}`,
               },
