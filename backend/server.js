@@ -1668,6 +1668,109 @@ echo "TMPDIR=$TMP"
   }
 
   // =============================================
+  // CONTENT TEMPLATES — Studio tab: daily-content themes (neo-brain.content_templates)
+  // The naca-content-creator daily-content trigger picks an active theme by
+  // weighted day-of-year rotation. This lets the operator manage themes from
+  // the app instead of editing the DB by hand.
+  // =============================================
+
+  // GET /api/content-templates — all themes (active + inactive)
+  if (urlPath === '/api/content-templates' && req.method === 'GET') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    try {
+      const { data, error } = await supabase.from('content_templates')
+        .select('*')
+        .order('active', { ascending: false })
+        .order('key', { ascending: true });
+      if (error) throw error;
+      const templates = data || [];
+      json(res, {
+        templates,
+        stats: { total: templates.length, active: templates.filter(t => t.active).length },
+      });
+    } catch (e) { json(res, { error: e.message }, 500); }
+    return;
+  }
+
+  // PATCH /api/content-templates/:id — edit a theme
+  const tplEdit = urlPath.match(/^\/api\/content-templates\/([0-9a-f-]{36})$/);
+  if (tplEdit && req.method === 'PATCH') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    const id = tplEdit[1];
+    readBody(req, async (body) => {
+      try {
+        const patch = {};
+        if ('display_name' in body) patch.display_name = body.display_name?.toString() || '';
+        if ('active' in body) patch.active = Boolean(body.active);
+        if ('weight' in body) {
+          const w = parseInt(body.weight, 10);
+          if (!Number.isNaN(w)) patch.weight = Math.min(Math.max(w, 1), 100);
+        }
+        if ('concept_prompt' in body) patch.concept_prompt = body.concept_prompt?.toString() || '';
+        if ('image_prompt_template' in body) patch.image_prompt_template = body.image_prompt_template?.toString() || null;
+        if ('action_suffix' in body) patch.action_suffix = body.action_suffix?.toString() || null;
+        if ('kind' in body && ['video', 'image'].includes(body.kind)) patch.kind = body.kind;
+        if ('mode' in body && ['character', 'generative'].includes(body.mode)) patch.mode = body.mode;
+        if ('music' in body) patch.music = Boolean(body.music);
+        if ('tool_hint' in body) patch.tool_hint = body.tool_hint?.toString() || null;
+        if ('notes' in body) patch.notes = body.notes?.toString() || null;
+        if ('categories' in body && Array.isArray(body.categories)) patch.categories = body.categories;
+        if ('output' in body && body.output && typeof body.output === 'object') patch.output = body.output;
+        if (!Object.keys(patch).length) { json(res, { error: 'no editable fields in body' }, 400); return; }
+        patch.updated_at = new Date().toISOString();
+        const { data, error } = await supabase.from('content_templates')
+          .update(patch).eq('id', id).select().single();
+        if (error) {
+          if (error.code === 'PGRST116') { json(res, { error: 'template not found' }, 404); return; }
+          throw error;
+        }
+        json(res, { ok: true, template: data });
+      } catch (e) { json(res, { error: e.message }, 500); }
+    });
+    return;
+  }
+
+  // POST /api/content-templates — create a new theme (defaults to inactive)
+  if (urlPath === '/api/content-templates' && req.method === 'POST') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    readBody(req, async (body) => {
+      try {
+        const key = (body.key || '').toString().trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+        const displayName = (body.display_name || '').toString().trim();
+        const conceptPrompt = (body.concept_prompt || '').toString().trim();
+        if (!key) { json(res, { error: 'key required (slug)' }, 400); return; }
+        if (!displayName) { json(res, { error: 'display_name required' }, 400); return; }
+        if (!conceptPrompt) { json(res, { error: 'concept_prompt required' }, 400); return; }
+        const row = {
+          key,
+          display_name: displayName,
+          concept_prompt: conceptPrompt,
+          active: body.active === undefined ? false : Boolean(body.active),
+          weight: Math.min(Math.max(parseInt(body.weight, 10) || 1, 1), 100),
+          kind: ['video', 'image'].includes(body.kind) ? body.kind : 'video',
+          mode: ['character', 'generative'].includes(body.mode) ? body.mode : 'generative',
+          categories: Array.isArray(body.categories) ? body.categories : [],
+          image_prompt_template: body.image_prompt_template?.toString() || null,
+          action_suffix: body.action_suffix?.toString() || null,
+          output: (body.output && typeof body.output === 'object') ? body.output : {},
+          music: body.music === undefined ? true : Boolean(body.music),
+          tool_hint: body.tool_hint?.toString() || null,
+          notes: body.notes?.toString() || null,
+          created_by: 'naca:operator',
+        };
+        const { data, error } = await supabase.from('content_templates')
+          .insert(row).select().single();
+        if (error) {
+          if (error.code === '23505') { json(res, { error: `template key '${key}' already exists` }, 409); return; }
+          throw error;
+        }
+        json(res, { ok: true, template: data }, 201);
+      } catch (e) { json(res, { error: e.message }, 500); }
+    });
+    return;
+  }
+
+  // =============================================
   // SCHEDULED ACTIONS — operator cockpit for timekeeper queue
   // =============================================
 
