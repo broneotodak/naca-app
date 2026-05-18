@@ -3,6 +3,7 @@
 require('dotenv').config();
 const http = require('http');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
@@ -119,6 +120,50 @@ function s3SignedGet(storageUrlOrKey, expiresIn = 900) {
 // Siti's GAM tools are designed as thin clients of this layer (Phase 4b
 // Step 1B in the parallel CC session) — agents NEVER SSH to TDCC directly.
 const { spawn } = require('child_process');
+
+// --- NAS draft-media staging ----------------------------------------------
+// content-creator writes draft videos to the Ugreen NAS filesystem. To serve
+// them with HTTP Range (iOS video playback REQUIRES 206/Range — an SSH-cat
+// pipe has no size and can't seek), we stage the file to a local tempfile
+// once, then serve it range-capable from disk. Draft media is immutable, so a
+// staged file is reused indefinitely. An in-flight Map collapses the
+// concurrent connections iOS opens for one video into a single SSH fetch.
+const NACA_MEDIA_CACHE = path.join(os.tmpdir(), 'naca-draft-media');
+const stagingInFlight = new Map(); // cacheFile -> Promise
+
+function stageNasFile(remotePath, cacheFile) {
+  try { if (fs.statSync(cacheFile).size > 0) return Promise.resolve(); } catch { /* not staged yet */ }
+  if (stagingInFlight.has(cacheFile)) return stagingInFlight.get(cacheFile);
+  const p = new Promise((resolve, reject) => {
+    fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
+    const tmp = cacheFile + '.part';
+    const out = fs.createWriteStream(tmp);
+    // spawn arg-array (no shell our side); remote path single-quoted so the
+    // NAS shell keeps spaces as one arg.
+    const proc = spawn('ssh', [
+      '-i', `${process.env.HOME}/.ssh/id_naca_nas`,
+      '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10',
+      'Neo@100.85.18.97', `cat '${remotePath}'`,
+    ], { timeout: 180_000 });
+    let errBuf = '';
+    proc.stdout.pipe(out);
+    proc.stderr.on('data', d => { errBuf += d.toString(); });
+    proc.on('error', err => { out.destroy(); try { fs.unlinkSync(tmp); } catch {} reject(err); });
+    proc.on('close', code => {
+      out.end(() => {
+        if (code !== 0) { try { fs.unlinkSync(tmp); } catch {} return reject(new Error(`ssh exit ${code}: ${errBuf.slice(0, 200)}`)); }
+        try {
+          if (fs.statSync(tmp).size === 0) { fs.unlinkSync(tmp); return reject(new Error('empty file from nas')); }
+          fs.renameSync(tmp, cacheFile); // atomic — concurrent readers see the whole file or nothing
+          resolve();
+        } catch (e) { reject(e); }
+      });
+    });
+  }).finally(() => stagingInFlight.delete(cacheFile));
+  stagingInFlight.set(cacheFile, p);
+  return p;
+}
+
 const ALLOWED_GAM_VERBS = new Set([
   'info',     // info user, info domain, info group
   'print',    // print users, print orgs, print shareddrives, etc.
@@ -1432,15 +1477,17 @@ echo "TMPDIR=$TMP"
     return;
   }
 
-  // GET /api/content-drafts/:id/media?idx=N — stream a content-draft's media.
+  // GET|HEAD /api/content-drafts/:id/media?idx=N — serve a content-draft's media.
   // content-creator writes daily videos to the Ugreen NAS filesystem
   // (/volume1/Todak Studios/naca/<path>), recorded in content_drafts.media_paths
   // as [{kind,path,store:'nas'}]. There's no `media` table row and no MinIO
-  // object — so /api/media/:id/blob can't serve it. naca-backend SSHes to the
-  // NAS (id_naca_nas key, already provisioned) and streams the file. The SCHED
-  // tab's draft card opens this. ?token= supported for the external player.
+  // object — so /api/media/:id/blob can't serve it. naca-backend stages the file
+  // from the NAS to a local tempfile (stageNasFile), then serves it with HTTP
+  // Range support — iOS video playback sends a Range probe and won't play a
+  // body it can't size or seek. The SCHED tab's draft card opens this.
+  // ?token= supported for the external player.
   const draftMedia = urlPath.match(/^\/api\/content-drafts\/([0-9a-f-]{36})\/media$/);
-  if (draftMedia && req.method === 'GET') {
+  if (draftMedia && (req.method === 'GET' || req.method === 'HEAD')) {
     if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
     const id = draftMedia[1];
     try {
@@ -1461,27 +1508,33 @@ echo "TMPDIR=$TMP"
       const ctype = ({ mp4: 'video/mp4', mov: 'video/quicktime', jpg: 'image/jpeg', jpeg: 'image/jpeg',
         png: 'image/png', webp: 'image/webp', m4a: 'audio/mp4', mp3: 'audio/mpeg' })[ext] || 'application/octet-stream';
       const remotePath = `/volume1/Todak Studios/naca/${relPath}`;
-      // Stream via SSH+cat. spawn arg-array (no shell on our side); the remote
-      // path is single-quoted so the NAS shell treats spaces as one arg.
-      const proc = spawn('ssh', [
-        '-i', `${process.env.HOME}/.ssh/id_naca_nas`,
-        '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10',
-        'Neo@100.85.18.97', `cat '${remotePath}'`,
-      ], { timeout: 120_000 });
-      let headerSent = false, errBuf = '';
-      proc.stdout.once('data', () => {
-        if (!headerSent) { headerSent = true; res.writeHead(200, { 'Content-Type': ctype, 'Cache-Control': 'private, max-age=300' }); }
-      });
-      proc.stdout.pipe(res);
-      proc.stderr.on('data', d => { errBuf += d.toString(); });
-      proc.on('close', code => {
-        if (!headerSent) {
-          json(res, { error: `nas fetch failed (exit ${code})`, detail: errBuf.slice(0, 200) }, 502);
-        } else if (!res.writableEnded) { res.end(); }
-      });
-      proc.on('error', err => {
-        if (!headerSent) { json(res, { error: 'ssh spawn failed: ' + err.message }, 502); }
-      });
+      const cacheFile = path.join(NACA_MEDIA_CACHE, `${id}-${idx}.${ext}`);
+      // Stage from NAS (intercontinental SSH — slow first hit, instant after;
+      // the external player tolerates the wait, iOS connection timeout >> this).
+      try {
+        await stageNasFile(remotePath, cacheFile);
+      } catch (e) {
+        json(res, { error: 'nas stage failed: ' + e.message }, 502); return;
+      }
+      const total = fs.statSync(cacheFile).size;
+      const baseHeaders = { 'Content-Type': ctype, 'Accept-Ranges': 'bytes', 'Cache-Control': 'private, max-age=3600' };
+      const rangeHeader = req.headers.range;
+      const m = rangeHeader && /^bytes=(\d*)-(\d*)$/.exec(rangeHeader);
+      if (m) {
+        let start = m[1] ? parseInt(m[1], 10) : 0;
+        let end = m[2] ? parseInt(m[2], 10) : total - 1;
+        if (isNaN(start) || isNaN(end) || start > end || start >= total) {
+          res.writeHead(416, { 'Content-Range': `bytes */${total}` }); res.end(); return;
+        }
+        end = Math.min(end, total - 1);
+        res.writeHead(206, { ...baseHeaders, 'Content-Range': `bytes ${start}-${end}/${total}`, 'Content-Length': end - start + 1 });
+        if (req.method === 'HEAD') { res.end(); return; }
+        fs.createReadStream(cacheFile, { start, end }).pipe(res);
+        return;
+      }
+      res.writeHead(200, { ...baseHeaders, 'Content-Length': total });
+      if (req.method === 'HEAD') { res.end(); return; }
+      fs.createReadStream(cacheFile).pipe(res);
     } catch (e) { json(res, { error: e.message }, 500); }
     return;
   }
