@@ -1299,6 +1299,83 @@ echo "TMPDIR=$TMP"
     return;
   }
 
+  // Surface 4 Tier B (2026-05-18) — contact create/update/delete.
+  // Replaces /api/siti/api/contacts* (502, dead v1 monolith). Service-role
+  // writes to neo-brain.contacts. permission CHECK = owner|admin|developer|
+  // chat|readonly|blocked; kind CHECK = user|group (NOT NULL, no default).
+  const CONTACT_PERMISSIONS = ['owner', 'admin', 'developer', 'chat', 'readonly', 'blocked'];
+
+  // POST /api/contacts — create. Body: {phone, name, permission?}.
+  if (urlPath === '/api/contacts' && req.method === 'POST') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    readBody(req, async (body) => {
+      try {
+        const phone = String(body?.phone || '').trim();
+        if (!phone) { json(res, { error: 'phone required' }, 400); return; }
+        const permission = body?.permission && CONTACT_PERMISSIONS.includes(body.permission)
+          ? body.permission : 'readonly';
+        // kind is NOT NULL with no DB default — a hand-added contact is a user.
+        const row = {
+          phone,
+          name: String(body?.name || '').trim() || null,
+          permission,
+          kind: 'user',
+        };
+        const { data, error } = await supabase.from('contacts').insert(row).select().maybeSingle();
+        if (error) { json(res, { error: error.message }, 500); return; }
+        json(res, { ok: true, contact: data }, 201);
+      } catch (e) { json(res, { error: e.message }, 500); }
+    });
+    return;
+  }
+
+  const contactById = urlPath.match(/^\/api\/contacts\/([0-9a-f-]{36})$/);
+
+  // PATCH /api/contacts/:id — update name / permission / project_scope /
+  // auto_reply_enabled / persona_override. Only provided fields are touched.
+  if (contactById && req.method === 'PATCH') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    const id = contactById[1];
+    readBody(req, async (body) => {
+      try {
+        const patch = {};
+        if (typeof body?.name === 'string') patch.name = body.name.trim() || null;
+        if (typeof body?.persona_override === 'string') patch.persona_override = body.persona_override.trim() || null;
+        if (typeof body?.auto_reply_enabled === 'boolean') patch.auto_reply_enabled = body.auto_reply_enabled;
+        if (Array.isArray(body?.project_scope)) patch.project_scope = body.project_scope.map(s => String(s).trim()).filter(Boolean);
+        if (body?.permission != null) {
+          if (!CONTACT_PERMISSIONS.includes(body.permission)) { json(res, { error: `invalid permission '${body.permission}'` }, 400); return; }
+          patch.permission = body.permission;
+        }
+        if (Object.keys(patch).length === 0) { json(res, { error: 'no fields to update' }, 400); return; }
+        patch.updated_at = new Date().toISOString();
+        const { data, error } = await supabase.from('contacts').update(patch).eq('id', id).select().maybeSingle();
+        if (error) { json(res, { error: error.message }, 500); return; }
+        if (!data) { json(res, { error: 'contact not found' }, 404); return; }
+        json(res, { ok: true, contact: data });
+      } catch (e) { json(res, { error: e.message }, 500); }
+    });
+    return;
+  }
+
+  // DELETE /api/contacts/:id — refuses owner-permission rows (deleting Neo's
+  // own contact would strip Siti's owner policy). Otherwise hard-deletes.
+  if (contactById && req.method === 'DELETE') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    const id = contactById[1];
+    try {
+      const { data: existing, error: fErr } = await supabase.from('contacts')
+        .select('id, permission, name').eq('id', id).maybeSingle();
+      if (fErr) { json(res, { error: fErr.message }, 500); return; }
+      if (!existing) { json(res, { error: 'contact not found' }, 404); return; }
+      if (existing.permission === 'owner') { json(res, { error: 'refusing to delete an owner contact' }, 400); return; }
+      const { error } = await supabase.from('contacts').delete().eq('id', id);
+      if (error) { json(res, { error: error.message }, 500); return; }
+      json(res, { ok: true, id, name: existing.name });
+    } catch (e) { json(res, { error: e.message }, 500); }
+    return;
+  }
+
   // GET /api/media-batch?ids=uuid1,uuid2 — fetch media metadata for memory cross-links
   // Returns kind/mime/transcript/caption only (no signed URLs — those still come from Siti).
   if (urlPath === '/api/media-batch' && req.method === 'GET') {

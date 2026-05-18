@@ -175,6 +175,39 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
     }
   }
 
+  // Native-endpoint write helpers (no /api/siti proxy prefix). Surface 4
+  // Tier B moved contact create/update/delete onto naca-backend's own
+  // /api/contacts routes.
+  Future<Map<String, dynamic>?> _postNaca(String path, Map<String, dynamic> body, {String method = 'POST'}) async {
+    try {
+      final headers = <String, String>{
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ${AppConfig.authToken}',
+      };
+      final uri = Uri.parse('${AppConfig.apiBaseUrl}$path');
+      final encodedBody = jsonEncode(body);
+      final res = method == 'PATCH'
+          ? await http.patch(uri, headers: headers, body: encodedBody).timeout(const Duration(seconds: 10))
+          : await http.post(uri, headers: headers, body: encodedBody).timeout(const Duration(seconds: 10));
+      if (res.statusCode < 400) {
+        try { return jsonDecode(res.body); } catch (_) { return {}; }
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<bool> _deleteNaca(String path) async {
+    try {
+      final headers = <String, String>{'Authorization': 'Bearer ${AppConfig.authToken}'};
+      final res = await http.delete(Uri.parse('${AppConfig.apiBaseUrl}$path'), headers: headers).timeout(const Duration(seconds: 10));
+      return res.statusCode < 400;
+    } catch (_) {
+      return false;
+    }
+  }
+
   void _showSnack(String msg, {bool error = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -1015,7 +1048,7 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
             TextButton(
               onPressed: () async {
                 if (phoneCtrl.text.trim().isEmpty) return;
-                final result = await _postJson('/api/contacts', {
+                final result = await _postNaca('/api/contacts', {
                   'phone': phoneCtrl.text.trim(),
                   'name': nameCtrl.text.trim(),
                   'permission': permission,
@@ -1127,7 +1160,7 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
                         .where((s) => s.isNotEmpty)
                         .toList()
                     : <String>[];
-                final result = await _postJson('/api/contacts/$id', {
+                final result = await _postNaca('/api/contacts/$id', {
                   'name': nameCtrl.text.trim(),
                   'permission': permission,
                   'project_scope': scopeList,
@@ -1169,7 +1202,7 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
             onPressed: () async {
               Navigator.of(ctx).pop();
               Navigator.of(parentCtx).pop();
-              final ok = await _deleteJson('/api/contacts/$contactId');
+              final ok = await _deleteNaca('/api/contacts/$contactId');
               if (ok) {
                 SoundService.instance.playSent();
                 _showSnack('Contact deleted');
