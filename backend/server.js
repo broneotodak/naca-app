@@ -1591,17 +1591,13 @@ echo "TMPDIR=$TMP"
           json(res, { error: `draft is ${draft.status}, can't re-approve` }, 409); return;
         }
 
-        // 2. Insert a scheduled_action per channel (claw-mac dispatch).
-        // Each platform gets its own scheduled_action so partial-success
-        // (e.g. LinkedIn ok, IG fails) is visible per row.
-        const media0 = draft.media_paths?.[0] || {};
-        const mediaPath = media0.path || null;
-        const mediaKind = media0.kind || 'video';
-        // content-creator writes drafts to the Ugreen NAS (store:'nas'); older
-        // local drafts carry no store marker. naca-app reports where the file
-        // lives — it must NOT hardcode a host; the publisher worker decides how
-        // to fetch it (a 'nas' file is staged worker-side before posting).
-        const mediaStore = media0.store || 'local';
+        // 2. Insert a scheduled_action per channel — dispatched to poster-agent,
+        // the NACA publisher chain: poster-agent (NAS Ugreen) fans each
+        // post_content out to publisher-agent (API channels) or browser-agent
+        // (UI channels), both on Slave MBP. One scheduled_action per channel so
+        // partial success (LinkedIn ok, IG fails) is visible per row.
+        // poster-agent's post_content contract takes the draft's media_paths
+        // array as-is and resolves NAS-stored media itself.
         const insertedActions = [];
         for (const channel of cleanCh) {
           const desc = `${channel} post: ${(draft.caption || '').slice(0, 50)}`;
@@ -1610,15 +1606,13 @@ echo "TMPDIR=$TMP"
             action_kind: 'agent_command',
             action_payload: {
               from_agent: 'naca-app',
-              to_agent: 'claw-mac',
-              command: `post_to_${channel}`,
+              to_agent: 'poster-agent',
+              command: 'post_content',
               payload: {
                 caption: draft.caption,
-                media_path: mediaPath,
-                media_kind: mediaKind,
-                media_store: mediaStore,
-                draft_id: draftId,
-                idempotency_key: `draft-${draftId}-${channel}`,
+                channel,
+                media_paths: draft.media_paths,
+                content_draft_id: draftId,
               },
             },
             status: 'scheduled',
