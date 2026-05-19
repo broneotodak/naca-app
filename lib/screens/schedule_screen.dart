@@ -962,6 +962,15 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                   child: Text('EDIT', style: HackerTheme.mono(size: 9, color: HackerTheme.cyan)),
                 ),
               ),
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: () => _showRegenerateDialog(d),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(border: Border.all(color: HackerTheme.amber)),
+                  child: Text('REGEN', style: HackerTheme.mono(size: 9, color: HackerTheme.amber)),
+                ),
+              ),
               const Spacer(),
               GestureDetector(
                 onTap: () => _confirmReject(id),
@@ -976,6 +985,79 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         ],
       ),
     );
+  }
+
+  // REGEN — reject this draft and regenerate it as a chosen theme. The
+  // backend rejects the draft + dispatches a generate_theme command to
+  // content-creator, which produces a fresh draft.
+  Future<void> _showRegenerateDialog(Map<String, dynamic> d) async {
+    final id = d['id']?.toString() ?? '';
+    if (id.isEmpty) return;
+    List<Map<String, dynamic>> themes = [];
+    try {
+      final res = await http.get(
+        Uri.parse('${AppConfig.apiBaseUrl}/api/content-templates'),
+        headers: {'Authorization': 'Bearer ${AppConfig.authToken}'},
+      ).timeout(const Duration(seconds: 15));
+      if (res.statusCode < 400) {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        themes = List<Map<String, dynamic>>.from(body['templates'] ?? const [])
+            .where((t) => t['active'] == true)
+            .toList();
+      }
+    } catch (_) {}
+    if (!mounted) return;
+    if (themes.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No active themes to regenerate with'), backgroundColor: HackerTheme.red),
+      );
+      return;
+    }
+    final chosen = await showDialog<String>(
+      context: context,
+      builder: (_) => SimpleDialog(
+        backgroundColor: HackerTheme.bgPanel,
+        title: Text('// reject & regenerate as', style: HackerTheme.mono(size: 12, color: HackerTheme.amber)),
+        children: themes.map((t) => SimpleDialogOption(
+          onPressed: () => Navigator.of(context).pop(t['key']?.toString()),
+          child: Text(
+            '${t['display_name'] ?? t['key']}  ·  ${t['mode']}',
+            style: HackerTheme.monoNoGlow(size: 11, color: HackerTheme.white),
+          ),
+        )).toList(),
+      ),
+    );
+    if (chosen == null || !mounted) return;
+    await _regenerate(id, chosen);
+  }
+
+  Future<void> _regenerate(String id, String templateKey) async {
+    try {
+      final res = await http.post(
+        Uri.parse('${AppConfig.apiBaseUrl}/api/content-drafts/$id/regenerate'),
+        headers: {
+          'Authorization': 'Bearer ${AppConfig.authToken}',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({'template_key': templateKey}),
+      ).timeout(const Duration(seconds: 15));
+      if (res.statusCode >= 400) {
+        String msg = 'HTTP ${res.statusCode}';
+        try { final j = jsonDecode(res.body); if (j is Map && j['error'] != null) msg = j['error'].toString(); } catch (_) {}
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Regenerate failed: $msg'), backgroundColor: HackerTheme.red),
+        );
+      } else {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Rejected — regenerating as $templateKey (a new draft will appear)'), backgroundColor: HackerTheme.amber),
+        );
+        await _load(silent: true);
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Regenerate error: $e'), backgroundColor: HackerTheme.red),
+      );
+    }
   }
 
   Widget _draftCardCompact(Map<String, dynamic> d) {
