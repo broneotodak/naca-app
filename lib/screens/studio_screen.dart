@@ -308,6 +308,7 @@ class _TemplateDialogState extends State<_TemplateDialog> {
   late bool _music;
   late String _mode;
   late String _kind;
+  late String _narrationLang;
 
   bool get _isCreate => widget.template == null;
 
@@ -325,6 +326,7 @@ class _TemplateDialogState extends State<_TemplateDialog> {
     _music = t['music'] == null ? true : t['music'] == true;
     _mode = (t['mode'] ?? 'character').toString();
     _kind = (t['kind'] ?? 'video').toString();
+    _narrationLang = (t['narration_language'] ?? 'en').toString();
   }
 
   @override
@@ -349,6 +351,7 @@ class _TemplateDialogState extends State<_TemplateDialog> {
       'music': _music,
       'mode': _mode,
       'kind': _kind,
+      'narration_language': _narrationLang,
     };
     if (_isCreate) {
       if (_key.text.trim().isEmpty || _displayName.text.trim().isEmpty || _concept.text.trim().isEmpty) {
@@ -411,6 +414,9 @@ class _TemplateDialogState extends State<_TemplateDialog> {
                   const SizedBox(width: 16),
                   _checkbox('music', _music, (v) => setState(() => _music = v)),
                 ]),
+                const SizedBox(height: 12),
+                _segmented('narration voice language', _narrationLang, const ['en', 'ms', 'id'],
+                    (v) => setState(() => _narrationLang = v)),
                 const SizedBox(height: 12),
                 _field('concept prompt (Gemini brief — {category} is filled per day)', _concept, lines: 8),
                 const SizedBox(height: 12),

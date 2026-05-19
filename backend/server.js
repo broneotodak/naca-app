@@ -1756,6 +1756,7 @@ echo "TMPDIR=$TMP"
         if ('kind' in body && ['video', 'image'].includes(body.kind)) patch.kind = body.kind;
         if ('mode' in body && ['character', 'generative'].includes(body.mode)) patch.mode = body.mode;
         if ('music' in body) patch.music = Boolean(body.music);
+        if ('narration_language' in body && ['en', 'ms', 'id'].includes(body.narration_language)) patch.narration_language = body.narration_language;
         if ('tool_hint' in body) patch.tool_hint = body.tool_hint?.toString() || null;
         if ('notes' in body) patch.notes = body.notes?.toString() || null;
         if ('categories' in body && Array.isArray(body.categories)) patch.categories = body.categories;
@@ -1798,6 +1799,7 @@ echo "TMPDIR=$TMP"
           action_suffix: body.action_suffix?.toString() || null,
           output: (body.output && typeof body.output === 'object') ? body.output : {},
           music: body.music === undefined ? true : Boolean(body.music),
+          narration_language: ['en', 'ms', 'id'].includes(body.narration_language) ? body.narration_language : 'en',
           tool_hint: body.tool_hint?.toString() || null,
           notes: body.notes?.toString() || null,
           created_by: 'naca:operator',
