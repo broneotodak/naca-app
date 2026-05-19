@@ -1667,6 +1667,50 @@ echo "TMPDIR=$TMP"
     return;
   }
 
+  // POST /api/content-drafts/:id/regenerate  body: { template_key }
+  // Rejects the draft and dispatches a generate_theme command to
+  // content-creator, which produces a fresh draft with the chosen theme.
+  const draftRegen = urlPath.match(/^\/api\/content-drafts\/([0-9a-f-]{36})\/regenerate$/);
+  if (draftRegen && req.method === 'POST') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    const draftId = draftRegen[1];
+    readBody(req, async (body) => {
+      try {
+        const templateKey = (body.template_key || '').toString().trim();
+        if (!templateKey) { json(res, { error: 'template_key required' }, 400); return; }
+        // Confirm the theme exists.
+        const { data: tpl, error: tErr } = await supabase.from('content_templates')
+          .select('key').eq('key', templateKey).maybeSingle();
+        if (tErr) throw tErr;
+        if (!tpl) { json(res, { error: `no theme with key '${templateKey}'` }, 404); return; }
+        // Reject the draft (only if still pending).
+        const { error: rErr } = await supabase.from('content_drafts')
+          .update({
+            status: 'rejected',
+            rejected_at: new Date().toISOString(),
+            rejected_reason: `regenerate as ${templateKey}`,
+          })
+          .eq('id', draftId).eq('status', 'pending_approval')
+          .select().single();
+        if (rErr) {
+          if (rErr.code === 'PGRST116') { json(res, { error: 'draft not pending (already approved/rejected or not found)' }, 409); return; }
+          throw rErr;
+        }
+        // Dispatch the regeneration to content-creator.
+        const { data: cmd, error: cErr } = await supabase.from('agent_commands').insert({
+          from_agent: 'naca-app',
+          to_agent: 'content-creator',
+          command: 'generate_theme',
+          payload: { template_key: templateKey },
+          status: 'pending',
+        }).select('id').single();
+        if (cErr) throw cErr;
+        json(res, { ok: true, rejected_draft: draftId, theme: templateKey, command_id: cmd.id });
+      } catch (e) { json(res, { error: e.message }, 500); }
+    });
+    return;
+  }
+
   // =============================================
   // CONTENT TEMPLATES — Studio tab: daily-content themes (neo-brain.content_templates)
   // The naca-content-creator daily-content trigger picks an active theme by
