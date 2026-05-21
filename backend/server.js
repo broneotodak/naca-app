@@ -675,8 +675,9 @@ const server = http.createServer(async (req, res) => {
         // `error` is not a column on agent_commands — failure details live in `result.error`.
         supabase.from('agent_commands').select('to_agent, from_agent, status, result, command, created_at').gte('created_at', since),
         supabase.from('gam_audit').select('requested_by, verb, exit_code, ms_elapsed, error, created_at').gte('created_at', since),
-        // memory_writes_log column is `written_by`, not `source`.
-        supabase.from('memory_writes_log').select('written_by, created_at').gte('created_at', since),
+        // memory_writes_log columns: written_by + written_at
+        // (no `source`, no `created_at` — common copy-paste hazard).
+        supabase.from('memory_writes_log').select('written_by, written_at').gte('written_at', since),
       ]);
       const heartbeats = hb.data || [];
       const commands = cmds.data || [];
