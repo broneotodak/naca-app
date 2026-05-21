@@ -672,14 +672,16 @@ const server = http.createServer(async (req, res) => {
       const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
       const [hb, cmds, gam, memWrites] = await Promise.all([
         supabase.from('agent_heartbeats').select('agent_name, status, meta, reported_at'),
-        supabase.from('agent_commands').select('to_agent, from_agent, status, error, command, created_at').gte('created_at', since),
+        // `error` is not a column on agent_commands — failure details live in `result.error`.
+        supabase.from('agent_commands').select('to_agent, from_agent, status, result, command, created_at').gte('created_at', since),
         supabase.from('gam_audit').select('requested_by, verb, exit_code, ms_elapsed, error, created_at').gte('created_at', since),
-        supabase.from('memory_writes_log').select('source, created_at').gte('created_at', since),
+        // memory_writes_log column is `written_by`, not `source`.
+        supabase.from('memory_writes_log').select('written_by, created_at').gte('created_at', since),
       ]);
       const heartbeats = hb.data || [];
       const commands = cmds.data || [];
       const gamCalls = gam.data || [];
-      const memCounts = (memWrites.data || []).reduce((acc, r) => { acc[r.source || '?'] = (acc[r.source || '?'] || 0) + 1; return acc; }, {});
+      const memCounts = (memWrites.data || []).reduce((acc, r) => { acc[r.written_by || '?'] = (acc[r.written_by || '?'] || 0) + 1; return acc; }, {});
 
       // Build per-agent rollup. Start from heartbeats (canonical agent list)
       // then enrich with command + audit + memory metrics.
@@ -709,7 +711,8 @@ const server = http.createServer(async (req, res) => {
         else if (c.status === 'pending' || c.status === 'running') a.cmd_pending++;
         else if (['failed', 'dead_letter', 'needs_review'].includes(c.status)) {
           a.cmd_failed++;
-          if (a.recent_failures.length < 3 && c.error) a.recent_failures.push((c.command + ': ' + c.error).slice(0, 100));
+          const errMsg = c.result?.error || c.result?.message;
+          if (a.recent_failures.length < 3 && errMsg) a.recent_failures.push((c.command + ': ' + errMsg).slice(0, 100));
         }
       }
       // GAM calls: bucket by requested_by (siti, naca-ui, etc.)
