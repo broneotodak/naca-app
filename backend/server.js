@@ -1359,6 +1359,56 @@ echo "TMPDIR=$TMP"
     return;
   }
 
+  // GET /api/people — person directory powering the MEM/People tab.
+  // GET /api/facts — extracted facts powering the MEM/Facts list + people detail.
+  // GET /api/personality — personality dimensions for people detail.
+  //
+  // Each table has RLS enabled with no anon-readable policy (migration
+  // 20260516022625_harden_rls_close_anon_exposure on 2026-05-16 dropped
+  // anon_read_{people,facts,personality} on the assumption no anon
+  // consumer existed — the NACA app's MEM screen IS one, and the tab
+  // went silently empty). The fix: proxy through the backend with the
+  // service-role key (bypasses RLS) and gate on the existing app auth.
+  // Matches the same pattern /api/contacts uses for the SITI tab.
+  if (urlPath === '/api/people' && req.method === 'GET') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    try {
+      const cols = 'id, display_name, kind, notes, identifiers, metadata, created_at, updated_at, phone, lid, push_name, relationship, bio, nicknames, languages, facts, traits, message_count, first_seen_at, last_seen_at';
+      const { data, error } = await supabase.from('people')
+        .select(cols)
+        .order('updated_at', { ascending: false, nullsFirst: false })
+        .limit(200);
+      if (error) throw error;
+      json(res, { people: data || [], count: (data || []).length });
+    } catch (e) { json(res, { error: e.message }, 500); }
+    return;
+  }
+  if (urlPath === '/api/facts' && req.method === 'GET') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    try {
+      const cols = 'id, subject_id, fact, category, confidence, created_at';
+      const limit = Math.max(1, Math.min(500, Number((new URL(req.url, 'http://x')).searchParams.get('limit')) || 200));
+      const q = (new URL(req.url, 'http://x')).searchParams.get('q') || '';
+      let query = supabase.from('facts').select(cols).order('created_at', { ascending: false }).limit(limit);
+      if (q.trim()) query = query.ilike('fact', `%${q.trim()}%`);
+      const { data, error } = await query;
+      if (error) throw error;
+      json(res, { facts: data || [], count: (data || []).length });
+    } catch (e) { json(res, { error: e.message }, 500); }
+    return;
+  }
+  if (urlPath === '/api/personality' && req.method === 'GET') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    try {
+      const { data, error } = await supabase.from('personality')
+        .select('id, subject_id, trait, dimension, value, sample_count, description, example_behaviors')
+        .order('dimension');
+      if (error) throw error;
+      json(res, { personality: data || [], count: (data || []).length });
+    } catch (e) { json(res, { error: e.message }, 500); }
+    return;
+  }
+
   // Surface 4 Tier B (2026-05-18) — contact create/update/delete.
   // Replaces /api/siti/api/contacts* (502, dead v1 monolith). Service-role
   // writes to neo-brain.contacts. permission CHECK = owner|admin|developer|

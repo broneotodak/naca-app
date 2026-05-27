@@ -122,26 +122,37 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
     }
   }
 
+  // Route people/facts/personality through naca-backend instead of querying
+  // Supabase directly. RLS on these three tables has no anon policy since
+  // 2026-05-16 hardening — direct supabase_flutter reads return [] silently.
+  // The backend uses service-role + the app's existing bearer-token auth.
+  Future<Map<String, dynamic>?> _fetchNaca(String path) async {
+    try {
+      final headers = {'Authorization': 'Bearer ${AppConfig.authToken}'};
+      final res = await http.get(Uri.parse('${AppConfig.apiBaseUrl}$path'), headers: headers).timeout(const Duration(seconds: 20));
+      if (res.statusCode < 400) return jsonDecode(res.body) as Map<String, dynamic>;
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  List<Map<String, dynamic>> _safeList(Map<String, dynamic>? data, String key) {
+    if (data == null || data[key] is! List) return const [];
+    return List<Map<String, dynamic>>.from(data[key] as List);
+  }
+
   Future<void> _loadPeople() async {
     try {
-      final ppl = await _sb.from('people')
-          .select('id, display_name, kind, notes, identifiers, metadata, created_at, phone, lid, push_name, relationship, bio, nicknames, languages, facts, traits')
-          .order('updated_at', ascending: false)
-          .limit(200);
-      final factsData = await _sb.from('facts')
-          .select('id, subject_id, fact, category, confidence, created_at')
-          .order('created_at', ascending: false)
-          .limit(200);
-      // Load personality traits
-      final personalityData = await _sb.from('personality')
-          .select('id, subject_id, trait, dimension, value, sample_count, description, example_behaviors')
-          .order('dimension');
+      final pplData = await _fetchNaca('/api/people');
+      final factsData = await _fetchNaca('/api/facts?limit=200');
+      final personalityData = await _fetchNaca('/api/personality');
       if (mounted) setState(() {
-        _people = List<Map<String, dynamic>>.from(ppl);
-        _facts = List<Map<String, dynamic>>.from(factsData);
-        _personality = List<Map<String, dynamic>>.from(personalityData);
+        _people = _safeList(pplData, 'people');
+        _facts = _safeList(factsData, 'facts');
+        _personality = _safeList(personalityData, 'personality');
         _loadingPeople = false;
-        _pplError = null;
+        _pplError = (pplData == null) ? 'naca-backend unreachable' : null;
       });
     } catch (e) {
       if (mounted) setState(() { _loadingPeople = false; _pplError = e.toString(); });
@@ -159,16 +170,13 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
           .or('category.is.null,category.not.in.$_operationalCatsFilter')
           .order('created_at', ascending: false)
           .limit(20);
-      // Also search facts
-      final factResults = await _sb.from('facts')
-          .select('id, subject_id, fact, category, confidence, created_at')
-          .ilike('fact', '%$query%')
-          .order('created_at', ascending: false)
-          .limit(20);
+      // Also search facts — RLS-gated, routes through backend (see _loadPeople comment)
+      final factSearch = await _fetchNaca('/api/facts?limit=20&q=${Uri.encodeQueryComponent(query)}');
+      final factResults = _safeList(factSearch, 'facts');
       if (mounted) setState(() {
         _searchResults = [
           ...List<Map<String, dynamic>>.from(memResults).map((m) => {...m, '_type': 'memory'}),
-          ...List<Map<String, dynamic>>.from(factResults).map((f) => {...f, '_type': 'fact'}),
+          ...factResults.map((f) => {...f, '_type': 'fact'}),
         ];
         _searching = false;
       });
