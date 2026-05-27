@@ -1334,16 +1334,27 @@ echo "TMPDIR=$TMP"
   // GET /api/contacts — WhatsApp contact roster.
   // Reads neo-brain.contacts; columns already match what the SITI tab's
   // contact cards render (kind/name/phone/permission/auto_reply_enabled/
-  // project_scope/id). Newest-seen first.
+  // project_scope/id).
+  //
+  // Split query: groups returned without limit (typically <100), users
+  // ordered by last_seen_at DESC NULLS LAST and capped at 500. The
+  // previous single-query `LIMIT 500 ORDER BY last_seen_at DESC NULLS LAST`
+  // could drop groups whose last_seen_at was NULL into the unordered
+  // tail and clip them off — verified 2026-05-27 when 1 of 11 group
+  // rows was invisible to the SITI/Contacts/Groups tab. Splitting also
+  // means new operator-added groups always appear immediately.
   if (urlPath === '/api/contacts' && req.method === 'GET') {
     if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
     try {
-      const { data, error } = await supabase.from('contacts')
-        .select('id, person_id, phone, jid, lid, name, push_name, kind, permission, persona_override, auto_reply_enabled, reply_mode, project_scope, notes, last_seen_at')
-        .order('last_seen_at', { ascending: false, nullsFirst: false })
-        .limit(500);
-      if (error) throw error;
-      json(res, { contacts: data || [], count: (data || []).length });
+      const cols = 'id, person_id, phone, jid, lid, name, push_name, kind, permission, persona_override, auto_reply_enabled, reply_mode, project_scope, notes, last_seen_at';
+      const [{ data: groups, error: gErr }, { data: users, error: uErr }] = await Promise.all([
+        supabase.from('contacts').select(cols).eq('kind', 'group').order('last_seen_at', { ascending: false, nullsFirst: false }),
+        supabase.from('contacts').select(cols).eq('kind', 'user').order('last_seen_at', { ascending: false, nullsFirst: false }).limit(500),
+      ]);
+      if (gErr) throw gErr;
+      if (uErr) throw uErr;
+      const contacts = [...(groups || []), ...(users || [])];
+      json(res, { contacts, count: contacts.length, group_count: (groups || []).length, user_count: (users || []).length });
     } catch (e) { json(res, { error: e.message }, 500); }
     return;
   }
