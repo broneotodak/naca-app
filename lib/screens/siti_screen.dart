@@ -884,7 +884,14 @@ class _SitiScreenState extends State<SitiScreen> with SingleTickerProviderStateM
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Text(
-              '${groups.length} groups where Siti is active',
+              // Show filtered/total when searching; just the total otherwise.
+              // The previous "X groups where Siti is active" label was
+              // misleading — nothing in this tab filters groups by activity;
+              // the count just reflected the search-filtered list and dropped
+              // to "0 groups where Siti is active" any time a search missed.
+              _contactSearch.isNotEmpty
+                  ? '${groups.length} of ${_groupContacts.length} groups'
+                  : '${groups.length} groups',
               style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText),
             ),
           ),
