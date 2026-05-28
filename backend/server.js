@@ -2337,27 +2337,45 @@ function handleGithubWebhook(req, res) {
         case 'pull_request': {
           // Opened / synchronized → reviewer (DIRECT — known agent + command).
           // Contract: to_agent='reviewer', command='review_pr', payload needs { project, repo, branch }.
+          //
+          // Fleet-origin skip (2026-05-28): PRs created by the fleet itself
+          // (operator-mbp / slave-mbp / VPS dev-agent — all push as broneotodak)
+          // are handled end-to-end by the fleet session that created them
+          // (Lane B self-merge, deploy, save shared_infra_change). Reviewing them
+          // posts a "PR awaiting your call" brief Neo has been ignoring by design,
+          // and the daily-checkup digest then re-pages him about the orphan rows.
+          // Detection: author=broneotodak AND PR body carries the Claude Code
+          // marker (auto-appended by `gh pr create` from CC sessions). Manual
+          // PRs Neo opens via the GitHub web UI lack the marker and still get
+          // reviewed normally.
+          const prObj = payload.pull_request;
+          const isFleetOriginPr = prObj?.user?.login === 'broneotodak' &&
+            /(?:🤖\s*)?Generated with \[?Claude Code\]?|Co-Authored-By:\s*Claude/i.test(prObj?.body || '');
           if (['opened', 'synchronize', 'reopened', 'ready_for_review'].includes(payload.action)) {
-            const project = repo.split('/').pop() || repo;
-            const branch = payload.pull_request?.head?.ref;
-            commands.push({
-              from_agent: 'github-actions',
-              to_agent: 'reviewer',
-              command: 'review_pr',
-              payload: {
-                project,
-                repo,
-                branch,
-                pr_number: payload.pull_request?.number,
-                pr_title: payload.pull_request?.title,
-                pr_url: payload.pull_request?.html_url,
-                head_sha: payload.pull_request?.head?.sha,
-                base: payload.pull_request?.base?.ref,
-                action: payload.action,
-                reporter: payload.pull_request?.user?.login,
-              },
-              priority: 3,
-            });
+            if (isFleetOriginPr) {
+              console.log(`[github-webhook] fleet-origin PR — skipping review_pr dispatch: ${prObj.html_url} (action=${payload.action})`);
+            } else {
+              const project = repo.split('/').pop() || repo;
+              const branch = prObj?.head?.ref;
+              commands.push({
+                from_agent: 'github-actions',
+                to_agent: 'reviewer',
+                command: 'review_pr',
+                payload: {
+                  project,
+                  repo,
+                  branch,
+                  pr_number: prObj?.number,
+                  pr_title: prObj?.title,
+                  pr_url: prObj?.html_url,
+                  head_sha: prObj?.head?.sha,
+                  base: prObj?.base?.ref,
+                  action: payload.action,
+                  reporter: prObj?.user?.login,
+                },
+                priority: 3,
+              });
+            }
           }
           // Closed/merged → INTENT (planner decides: deploy notify? cleanup? no-op?).
           // Prompt explicitly forbids review/audit follow-ups: the reviewer
