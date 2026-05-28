@@ -75,6 +75,7 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
     _tabCtrl.dispose();
     _searchCtrl.dispose();
     _mediaSearchCtrl.dispose();
+    _peopleSearchDebounce?.cancel();
     super.dispose();
   }
 
@@ -343,17 +344,52 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
       ..sort((a, b) => _personRichness(b).compareTo(_personRichness(a)));
   }
 
+  // Server-side search state. When _peopleSearch is non-empty we fire
+  // /api/people?q=... (debounced 300ms) and render those results instead
+  // of locally filtering the 200-row sample. This is required because:
+  //  - Of 3,314 people rows, ~30% are merged tombstones the RPC now
+  //    filters out. Local filter showed ghost duplicates.
+  //  - The non-search list caps at 200 by updated_at. Names ranked past
+  //    200 (e.g. "Kayrule Bang Long" at rank 1989) were unreachable.
+  //  - Search-by-phone needs to look at the identifiers JSONB which
+  //    isn't even loaded into the client-side rows.
+  // The richness "PROFILED ONLY" filter also intentionally NEVER applies
+  // when the user is actively searching — search intent is "find this
+  // specific person", not "show me only profiled people".
+  Timer? _peopleSearchDebounce;
+  List<Map<String, dynamic>> _peopleSearchResults = [];
+  bool _peopleSearching = false;
+
+  void _onPeopleSearchChanged(String v) {
+    setState(() => _peopleSearch = v);
+    _peopleSearchDebounce?.cancel();
+    final q = v.trim();
+    if (q.isEmpty) {
+      setState(() {
+        _peopleSearchResults = [];
+        _peopleSearching = false;
+      });
+      return;
+    }
+    setState(() => _peopleSearching = true);
+    _peopleSearchDebounce = Timer(const Duration(milliseconds: 300), () async {
+      final res = await _fetchNaca('/api/people?q=${Uri.encodeQueryComponent(q)}');
+      if (!mounted) return;
+      // Discard stale responses if the user typed more in the meantime.
+      if (_peopleSearch.trim() != q) return;
+      setState(() {
+        _peopleSearchResults = _safeList(res, 'people');
+        _peopleSearching = false;
+      });
+    });
+  }
+
   List<Map<String, dynamic>> get _filteredPeople {
-    final source = _showAllPeople ? _people : _richPeople;
-    if (_peopleSearch.isEmpty) return source;
-    final q = _peopleSearch.toLowerCase();
-    return source.where((p) {
-      final name = (p['display_name'] ?? '').toString().toLowerCase();
-      final rel = (p['relationship'] ?? '').toString().toLowerCase();
-      final bio = (p['bio'] ?? '').toString().toLowerCase();
-      final nicknames = (p['nicknames'] as List?)?.join(' ').toLowerCase() ?? '';
-      return name.contains(q) || rel.contains(q) || bio.contains(q) || nicknames.contains(q);
-    }).toList();
+    if (_peopleSearch.trim().isNotEmpty) {
+      // Active search: server results, no richness filter (user intent overrides).
+      return _peopleSearchResults;
+    }
+    return _showAllPeople ? _people : _richPeople;
   }
 
   Widget _buildPeopleTab() {
@@ -381,7 +417,7 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
                 contentPadding: const EdgeInsets.symmetric(vertical: 8),
                 isDense: true,
               ),
-              onChanged: (v) => setState(() => _peopleSearch = v),
+              onChanged: _onPeopleSearchChanged,
             ),
           ),
         ),
