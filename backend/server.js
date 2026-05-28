@@ -1373,13 +1373,23 @@ echo "TMPDIR=$TMP"
   if (urlPath === '/api/people' && req.method === 'GET') {
     if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
     try {
-      const cols = 'id, display_name, kind, notes, identifiers, metadata, created_at, updated_at, phone, lid, push_name, relationship, bio, nicknames, languages, facts, traits, message_count, first_seen_at, last_seen_at';
-      const { data, error } = await supabase.from('people')
-        .select(cols)
-        .order('updated_at', { ascending: false, nullsFirst: false })
-        .limit(200);
+      // Calls people_search RPC for both list (?q empty) and search.
+      // The RPC filters merged tombstones (~30% of people rows) and junk
+      // rows by default, and searches across name fields + identifiers
+      // JSONB + nicknames when q is set. Single source of truth — keeps
+      // backend, audit tooling, and any future per-agent-JWT callers in
+      // sync. Migration: 2026-05-28_people_search_rpc.sql.
+      const u = new URL(req.url, 'http://x');
+      const q = (u.searchParams.get('q') || '').trim();
+      const includeMerged = u.searchParams.get('include_merged') === 'true';
+      const limit = Math.max(1, Math.min(500, Number(u.searchParams.get('limit')) || (q ? 100 : 200)));
+      const { data, error } = await supabase.rpc('people_search', {
+        q: q || null,
+        include_merged: includeMerged,
+        limit_n: limit,
+      });
       if (error) throw error;
-      json(res, { people: data || [], count: (data || []).length });
+      json(res, { people: data || [], count: (data || []).length, query: q || null });
     } catch (e) { json(res, { error: e.message }, 500); }
     return;
   }
