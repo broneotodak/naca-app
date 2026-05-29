@@ -17,6 +17,32 @@ if (process.env.NEO_BRAIN_URL && process.env.NEO_BRAIN_SERVICE_ROLE_KEY) {
   console.log('[NACA] Supabase connected to neo-brain');
 }
 
+// CTK audit-memory helper — fire-and-forget child_process spawn of the
+// canonical save-memory.js script. Used by Studio v2 admin writes
+// (agent_registry PATCH) so each operator action lands in neo-brain as
+// a shared_infra_change row with an ACTION: first-line audit prefix.
+// Best-effort: spawn failures log to stderr but don't fail the request.
+// Knowledge writes must go through the SDK (DB trigger rejects raw POST
+// with NULL embedding) — this helper inherits that contract.
+const CTK_SAVE_MEMORY = path.resolve(os.homedir(), 'Projects/claude-tools-kit/tools/save-memory.js');
+const CTK_SAVE_MEMORY_AVAILABLE = fs.existsSync(CTK_SAVE_MEMORY);
+if (!CTK_SAVE_MEMORY_AVAILABLE) {
+  console.warn('[NACA] CTK save-memory.js not found at', CTK_SAVE_MEMORY, '— Studio v2 audit memories will be skipped');
+}
+function writeAuditMemory({ action, agentName, operator, ok, detail }) {
+  if (!CTK_SAVE_MEMORY_AVAILABLE) return;
+  const { spawn } = require('child_process');
+  const iso = new Date().toISOString();
+  const firstLine = `ACTION: ${action} agent=${agentName} by=${operator || 'naca-app'} at=${iso} result=${ok ? 'ok' : 'error'}`;
+  const body = detail ? `${firstLine}\n\n${detail}` : firstLine;
+  const title = `Studio: ${action} ${agentName} (${ok ? 'ok' : 'error'})`;
+  const child = spawn('node', [CTK_SAVE_MEMORY, 'shared_infra_change', title, body, '5'], {
+    detached: true, stdio: 'ignore',
+  });
+  child.on('error', (e) => console.error('[audit-memory] spawn failed:', e.message));
+  child.unref();
+}
+
 // === MinIO media bytes — fixes mixed-content for browser image render ======
 // Pulls minio-nas creds from neo-brain credentials vault on boot. Replicates
 // Siti's s3SignedGet helper (SigV4 presigned GET) so we can sign URLs without
@@ -769,6 +795,97 @@ const server = http.createServer(async (req, res) => {
       if (error) throw error;
       json(res, { locks: data || [] });
     } catch (e) { json(res, { error: e.message }, 500); }
+    return;
+  }
+
+  // GET /api/agents/registry — full agent_registry rows for Studio v2 AGENTS view.
+  // Returns the canonical columns Studio needs to render an agent card +
+  // the full meta blob (host, runtime, on_leave, suppress_alerts, cadence,
+  // always_running, version, etc.) — Flutter client picks what it renders.
+  if (urlPath === '/api/agents/registry' && req.method === 'GET') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    try {
+      const { data, error } = await supabase.from('agent_registry')
+        .select('agent_name, display_name, emoji, role_description, host, agent_type, status, meta, updated_at')
+        .order('agent_name', { ascending: true });
+      if (error) throw error;
+      json(res, { rows: data || [] });
+    } catch (e) { json(res, { error: e.message }, 500); }
+    return;
+  }
+
+  // PATCH /api/agents/registry/:agent_name — operator-write surface for
+  // Studio v2 (pause/resume an agent). MVP whitelist: only meta.on_leave
+  // and meta.leave_started_at are writable; any other meta key is
+  // rejected so future scope additions (cost caps, etc.) are explicit.
+  // Read-modify-write on the meta JSONB — no jsonb_set RPC; solo-operator
+  // collision risk is acceptable. Fires a shared_infra_change audit
+  // memory via CTK save-memory.js (ACTION: prefix per Studio v2 design
+  // Q6 — operator audit trail is queryable by grep over memories).
+  const registryPatch = urlPath.match(/^\/api\/agents\/registry\/([^/]+)$/);
+  if (registryPatch && req.method === 'PATCH') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    const agentName = decodeURIComponent(registryPatch[1]);
+    readBody(req, async (body) => {
+      const operator = (typeof body?.operator === 'string' && body.operator.trim())
+        ? body.operator.trim().slice(0, 64) : 'naca-app';
+      try {
+        const patch = body?.meta_patch || {};
+        if (typeof patch !== 'object' || Array.isArray(patch)) {
+          json(res, { error: 'meta_patch must be an object' }, 400); return;
+        }
+        const allowedKeys = new Set(['on_leave', 'leave_started_at']);
+        for (const key of Object.keys(patch)) {
+          if (!allowedKeys.has(key)) {
+            json(res, { error: `meta_patch key "${key}" not in MVP whitelist (allowed: ${[...allowedKeys].join(', ')})` }, 400);
+            return;
+          }
+        }
+        if ('on_leave' in patch && typeof patch.on_leave !== 'boolean' && patch.on_leave !== null) {
+          json(res, { error: 'on_leave must be boolean or null' }, 400); return;
+        }
+        if ('leave_started_at' in patch && patch.leave_started_at !== null) {
+          if (typeof patch.leave_started_at !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(patch.leave_started_at)) {
+            json(res, { error: 'leave_started_at must be ISO-8601 string or null' }, 400); return;
+          }
+        }
+        // Classify action verb for the audit ACTION: prefix. on_leave
+        // changes get pause/resume; everything else is generic meta_update.
+        // Computed before DB calls so the error path can audit the same
+        // verb as the success path would have.
+        const action = patch.on_leave === true ? 'pause'
+          : patch.on_leave === false ? 'resume'
+          : 'meta_update';
+        const { data: row, error: readErr } = await supabase.from('agent_registry')
+          .select('meta').eq('agent_name', agentName).maybeSingle();
+        if (readErr) throw readErr;
+        if (!row) {
+          writeAuditMemory({ action, agentName, operator, ok: false, detail: 'not_found' });
+          json(res, { error: `agent "${agentName}" not found` }, 404); return;
+        }
+        const newMeta = { ...(row.meta || {}) };
+        for (const [k, v] of Object.entries(patch)) {
+          if (v === null || v === undefined) delete newMeta[k];
+          else newMeta[k] = v;
+        }
+        const { data: updated, error: writeErr } = await supabase.from('agent_registry')
+          .update({ meta: newMeta }).eq('agent_name', agentName).select().single();
+        if (writeErr) throw writeErr;
+        writeAuditMemory({
+          action, agentName, operator, ok: true,
+          detail: `patch=${JSON.stringify(patch)}`,
+        });
+        json(res, { ok: true, row: updated });
+      } catch (e) {
+        // Best-effort audit on error; if patch was malformed we never got
+        // an action verb so fall back to meta_update.
+        writeAuditMemory({
+          action: 'meta_update', agentName, operator, ok: false,
+          detail: `error=${e.message}`,
+        });
+        json(res, { error: e.message }, 500);
+      }
+    });
     return;
   }
 
