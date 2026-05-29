@@ -23,6 +23,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<Map<String, dynamic>> _locks = [];
   List<Map<String, dynamic>> _recentCmds = [];
 
+  // agent_registry meta keyed by agent_name — drives the PAUSED overlay
+  // badge and the PAUSE/RESUME button on each agent card. Fetched in
+  // parallel with heartbeats; covers fields like on_leave, suppress_alerts,
+  // and lets us skip the pause button on archived agents.
+  Map<String, Map<String, dynamic>> _registry = {};
+  final Set<String> _pauseBusy = {};
+
   // Cost data
   List<Map<String, dynamic>> _costServices = [];
   double _totalCost = 0;
@@ -273,6 +280,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final agents = await _sb.from('agent_heartbeats').select().order('reported_at', ascending: false);
     final commands = await _sb.from('agent_commands').select().order('created_at', ascending: false).limit(20);
     final locks = await _sb.from('agent_locks').select();
+    final registry = await _sb.from('agent_registry').select('agent_name, status, meta');
     final pendingRes = await _sb.from('agent_commands').select('id').eq('status', 'pending').count(CountOption.exact);
     final runningRes = await _sb.from('agent_commands').select('id').eq('status', 'running').count(CountOption.exact);
     final failedRes = await _sb.from('agent_commands').select('id').inFilter('status', ['failed', 'dead_letter', 'needs_review']).count(CountOption.exact);
@@ -281,6 +289,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _agents = List<Map<String, dynamic>>.from(agents);
       _recentCmds = List<Map<String, dynamic>>.from(commands);
       _locks = List<Map<String, dynamic>>.from(locks);
+      _registry = {
+        for (final r in List<Map<String, dynamic>>.from(registry))
+          r['agent_name'].toString(): r,
+      };
       _queue = {
         'pending': pendingRes.count,
         'running': runningRes.count,
@@ -558,6 +570,41 @@ class _DashboardScreenState extends State<DashboardScreen> {
       backgroundColor: HackerTheme.bgCard,
       duration: const Duration(seconds: 2),
     ));
+  }
+
+  // Toggle meta.on_leave for an agent via PATCH /api/agents/registry.
+  // Backend writes a shared_infra_change audit memory automatically
+  // (ACTION: pause|resume agent=... by=naca-app at=... result=ok|error).
+  // Reads current state from `_registry` so we don't need to round-trip
+  // the GET first. Refreshes data after the patch lands.
+  Future<void> _togglePause(String agentName) async {
+    final reg = _registry[agentName];
+    final isPaused = reg?['meta']?['on_leave'] == true;
+    final patch = isPaused
+        ? {'on_leave': false, 'leave_started_at': null}
+        : {'on_leave': true, 'leave_started_at': DateTime.now().toUtc().toIso8601String()};
+    setState(() => _pauseBusy.add(agentName));
+    try {
+      final res = await http.patch(
+        Uri.parse('${AppConfig.apiBaseUrl}/api/agents/registry/${Uri.encodeComponent(agentName)}'),
+        headers: {
+          'Authorization': 'Bearer ${AppConfig.authToken}',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({'meta_patch': patch, 'operator': 'naca-app'}),
+      ).timeout(const Duration(seconds: 15));
+      if (res.statusCode >= 400) {
+        _showSnack('${isPaused ? "resume" : "pause"} failed: HTTP ${res.statusCode}', error: true);
+      } else {
+        _showSnack('$agentName → ${isPaused ? "ACTIVE" : "ON LEAVE"}');
+        await _loadAgentData();
+        if (mounted) setState(() {});
+      }
+    } catch (e) {
+      _showSnack('pause error: $e', error: true);
+    } finally {
+      if (mounted) setState(() => _pauseBusy.remove(agentName));
+    }
   }
 
   // ── BUILD ──
@@ -1148,6 +1195,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final statusColor = isOk ? HackerTheme.green : isDeg ? HackerTheme.amber : HackerTheme.red;
     final ago = reportedAt != null ? _timeAgo(DateTime.parse(reportedAt)) : 'never';
 
+    // agent_registry meta — drives the operator overlay + pause button.
+    // Read separately from the heartbeat meta above (they are different
+    // jsonb blobs; on_leave + status='archived' live in registry only).
+    final reg = _registry[name.toString()];
+    final regMeta = (reg?['meta'] as Map<String, dynamic>?) ?? {};
+    final regStatus = (reg?['status'] ?? 'active').toString();
+    final isPaused = regMeta['on_leave'] == true;
+    final isArchived = regStatus == 'archived';
+    final pauseBusy = _pauseBusy.contains(name.toString());
+
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
       padding: const EdgeInsets.all(10),
@@ -1181,6 +1238,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           decoration: BoxDecoration(border: Border.all(color: statusColor.withValues(alpha: 0.4))),
                           child: Text(status.toString().toUpperCase(), style: HackerTheme.monoNoGlow(size: 7, color: statusColor)),
                         ),
+                        // Operator-set pause overlay — read from agent_registry.meta.on_leave.
+                        // Distinct from heartbeat status: the agent may still be heartbeating
+                        // while the operator has paused it (per-runner honoring ships
+                        // separately). See agent-registry-schema-v1.md §2.6.
+                        if (isPaused) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                            decoration: BoxDecoration(
+                              border: Border.all(color: HackerTheme.cyan),
+                              color: HackerTheme.cyan.withValues(alpha: 0.12),
+                            ),
+                            child: Text('ON LEAVE', style: HackerTheme.monoNoGlow(size: 7, color: HackerTheme.cyan)),
+                          ),
+                        ],
                       ],
                     ),
                     // Meta row
@@ -1221,6 +1293,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       _agentAction(Icons.search, 'INVESTIGATE', HackerTheme.amber, () => _investigateAgent(name.toString())),
                       const SizedBox(width: 4),
                       if (!isOffline) _agentAction(Icons.restart_alt, 'CMD', HackerTheme.amber, () => _showCommandDialog(name.toString())),
+                      // PAUSE / RESUME — writes meta.on_leave via
+                      // PATCH /api/agents/registry. Hidden for archived
+                      // agents (no execution to halt). Busy state shows
+                      // a spinner-style hourglass while the request is
+                      // in flight.
+                      if (!isArchived) ...[
+                        const SizedBox(width: 4),
+                        _agentAction(
+                          pauseBusy ? Icons.hourglass_empty
+                            : isPaused ? Icons.play_arrow
+                            : Icons.pause,
+                          isPaused ? 'RESUME' : 'PAUSE',
+                          isPaused ? HackerTheme.cyan : HackerTheme.amber,
+                          pauseBusy ? () {} : () => _togglePause(name.toString()),
+                        ),
+                      ],
                     ],
                   ),
                 ],

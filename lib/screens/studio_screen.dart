@@ -7,16 +7,19 @@ import '../theme.dart';
 
 /// STUDIO — operator console for the NACA fleet.
 ///
-/// 3-segment shell: AGENTS (default, live registry+heartbeat status with
-/// pause/resume), JOBS (placeholder), COST (placeholder). The original
-/// content-templates editor lives behind the header `⋯` menu.
+/// 3-segment shell: TEMPLATES (default — daily-content theme editor),
+/// JOBS (placeholder), COST (placeholder).
 ///
-/// Backend endpoints used:
-///   - `GET   /api/studio/agents`              — registry + heartbeats + classification
-///   - `PATCH /api/agents/registry/{name}`     — pause/resume (meta.on_leave + leave_started_at)
-///   - `GET   /api/content-templates`          — templates editor (legacy)
-///   - `PATCH /api/content-templates/{id}`     — templates editor (legacy)
-///   - `POST  /api/content-templates`          — templates editor (legacy)
+/// Pause/resume of individual agents lives on the HQ tab, where the agent
+/// listing already is — see dashboard_screen.dart `_buildAgentCard`. The
+/// `/api/studio/agents` backend endpoint remains live but is currently
+/// unused by the UI; future segments (JOBS / COST / RUN NOW) will consume
+/// their own purpose-built endpoints.
+///
+/// Backend endpoints used here:
+///   - `GET   /api/content-templates`          — templates list
+///   - `PATCH /api/content-templates/{id}`     — toggle / edit
+///   - `POST  /api/content-templates`          — create
 class StudioScreen extends StatefulWidget {
   const StudioScreen({super.key});
 
@@ -24,10 +27,10 @@ class StudioScreen extends StatefulWidget {
   State<StudioScreen> createState() => _StudioScreenState();
 }
 
-enum _Segment { agents, jobs, cost }
+enum _Segment { templates, jobs, cost }
 
 class _StudioScreenState extends State<StudioScreen> {
-  _Segment _segment = _Segment.agents;
+  _Segment _segment = _Segment.templates;
 
   @override
   Widget build(BuildContext context) {
@@ -52,25 +55,6 @@ class _StudioScreenState extends State<StudioScreen> {
       child: Row(children: [
         Text('NACA://', style: HackerTheme.mono(size: 14, color: HackerTheme.green)),
         Text('studio', style: HackerTheme.mono(size: 14, color: HackerTheme.dimText)),
-        const Spacer(),
-        PopupMenuButton<String>(
-          icon: const Icon(Icons.more_horiz, color: HackerTheme.grey, size: 18),
-          color: HackerTheme.bgPanel,
-          padding: EdgeInsets.zero,
-          tooltip: 'studio menu',
-          onSelected: (v) {
-            if (v == 'templates') {
-              showDialog(context: context, builder: (_) => const _TemplatesDialog());
-            }
-          },
-          itemBuilder: (_) => [
-            PopupMenuItem(
-              value: 'templates',
-              child: Text('daily-content themes…',
-                  style: HackerTheme.monoNoGlow(size: 11, color: HackerTheme.white)),
-            ),
-          ],
-        ),
       ]),
     );
   }
@@ -83,7 +67,7 @@ class _StudioScreenState extends State<StudioScreen> {
         border: Border(bottom: BorderSide(color: HackerTheme.borderDim)),
       ),
       child: Row(children: [
-        _segmentButton('AGENTS', _Segment.agents),
+        _segmentButton('TEMPLATES', _Segment.templates),
         const SizedBox(width: 6),
         _segmentButton('JOBS', _Segment.jobs),
         const SizedBox(width: 6),
@@ -115,8 +99,8 @@ class _StudioScreenState extends State<StudioScreen> {
 
   Widget _buildSegmentBody() {
     switch (_segment) {
-      case _Segment.agents:
-        return const _AgentsView();
+      case _Segment.templates:
+        return const _TemplatesView();
       case _Segment.jobs:
         return const _ComingSoon(label: 'JOBS', detail: 'Live + recent agent_commands and scheduled_actions');
       case _Segment.cost:
@@ -125,283 +109,6 @@ class _StudioScreenState extends State<StudioScreen> {
   }
 }
 
-/// AGENTS — live registry view with pause/resume. Polls /api/studio/agents
-/// every 20s. Hits `PATCH /api/agents/registry/{name}` on pause/resume.
-class _AgentsView extends StatefulWidget {
-  const _AgentsView();
-  @override
-  State<_AgentsView> createState() => _AgentsViewState();
-}
-
-class _AgentsViewState extends State<_AgentsView> {
-  List<Map<String, dynamic>> _rows = [];
-  bool _loading = true;
-  String? _error;
-  final Set<String> _busy = {};
-  Timer? _poll;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-    _poll = Timer.periodic(const Duration(seconds: 20), (_) => _load(silent: true));
-  }
-
-  @override
-  void dispose() {
-    _poll?.cancel();
-    super.dispose();
-  }
-
-  Future<void> _load({bool silent = false}) async {
-    if (!silent && mounted) setState(() { _loading = true; _error = null; });
-    try {
-      final res = await http.get(
-        Uri.parse('${AppConfig.apiBaseUrl}/api/studio/agents'),
-        headers: {'Authorization': 'Bearer ${AppConfig.authToken}'},
-      ).timeout(const Duration(seconds: 15));
-      if (res.statusCode >= 400) {
-        if (mounted) setState(() { _loading = false; _error = 'HTTP ${res.statusCode}'; });
-        return;
-      }
-      final body = jsonDecode(res.body) as Map<String, dynamic>;
-      if (mounted) setState(() {
-        _rows = List<Map<String, dynamic>>.from(body['rows'] ?? const []);
-        _loading = false;
-        _error = null;
-      });
-    } catch (e) {
-      if (mounted) setState(() { _loading = false; _error = e.toString(); });
-    }
-  }
-
-  void _snack(String msg, Color color) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), backgroundColor: color));
-  }
-
-  Future<void> _togglePause(Map<String, dynamic> row) async {
-    final agent = row['agent_name'].toString();
-    final isPaused = row['classification'] == 'on_leave';
-    final patch = isPaused
-        ? {'on_leave': false, 'leave_started_at': null}
-        : {'on_leave': true, 'leave_started_at': DateTime.now().toUtc().toIso8601String()};
-    setState(() => _busy.add(agent));
-    try {
-      final res = await http.patch(
-        Uri.parse('${AppConfig.apiBaseUrl}/api/agents/registry/${Uri.encodeComponent(agent)}'),
-        headers: {
-          'Authorization': 'Bearer ${AppConfig.authToken}',
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({'meta_patch': patch, 'operator': 'naca-app'}),
-      ).timeout(const Duration(seconds: 15));
-      if (res.statusCode >= 400) {
-        _snack('${isPaused ? "resume" : "pause"} failed: HTTP ${res.statusCode}', HackerTheme.red);
-      } else {
-        _snack('$agent → ${isPaused ? "ACTIVE" : "ON LEAVE"}', HackerTheme.green);
-        await _load(silent: true);
-      }
-    } catch (e) {
-      _snack('error: $e', HackerTheme.red);
-    } finally {
-      if (mounted) setState(() => _busy.remove(agent));
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator(color: HackerTheme.green));
-    }
-    if (_error != null) {
-      return Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text('// load error', style: HackerTheme.mono(size: 12, color: HackerTheme.red)),
-          const SizedBox(height: 6),
-          Text(_error!, style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.grey)),
-          const SizedBox(height: 12),
-          TextButton(
-            onPressed: () => _load(),
-            child: Text('RETRY', style: HackerTheme.mono(size: 11, color: HackerTheme.green)),
-          ),
-        ]),
-      );
-    }
-    if (_rows.isEmpty) {
-      return Center(
-        child: Text('// no agents in registry',
-            style: HackerTheme.mono(size: 11, color: HackerTheme.dimText)),
-      );
-    }
-    return RefreshIndicator(
-      color: HackerTheme.green,
-      backgroundColor: HackerTheme.bgPanel,
-      onRefresh: () => _load(),
-      child: ListView.builder(
-        padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
-        itemCount: _rows.length + 1,
-        itemBuilder: (_, i) {
-          if (i == 0) return _summary();
-          return _agentCard(_rows[i - 1]);
-        },
-      ),
-    );
-  }
-
-  Widget _summary() {
-    final counts = <String, int>{};
-    for (final r in _rows) {
-      final c = (r['classification'] ?? 'unknown').toString();
-      counts[c] = (counts[c] ?? 0) + 1;
-    }
-    Widget chip(String label, int n, Color color) => Container(
-          margin: const EdgeInsets.only(right: 6),
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-          decoration: BoxDecoration(border: Border.all(color: color)),
-          child: Text('$label $n', style: HackerTheme.monoNoGlow(size: 9, color: color)),
-        );
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Wrap(spacing: 4, runSpacing: 4, children: [
-        if ((counts['down'] ?? 0) > 0) chip('DOWN', counts['down']!, HackerTheme.red),
-        if ((counts['stale'] ?? 0) > 0) chip('STALE', counts['stale']!, HackerTheme.amber),
-        if ((counts['on_leave'] ?? 0) > 0) chip('ON LEAVE', counts['on_leave']!, HackerTheme.cyan),
-        if ((counts['suppressed'] ?? 0) > 0) chip('SUPPRESSED', counts['suppressed']!, HackerTheme.grey),
-        if ((counts['live'] ?? 0) > 0) chip('LIVE', counts['live']!, HackerTheme.green),
-        if ((counts['retired'] ?? 0) > 0) chip('RETIRED', counts['retired']!, HackerTheme.dimText),
-      ]),
-    );
-  }
-
-  Widget _agentCard(Map<String, dynamic> row) {
-    final agent = row['agent_name'].toString();
-    final emoji = (row['emoji'] ?? '').toString();
-    final displayName = (row['display_name'] ?? agent).toString();
-    final host = (row['host'] ?? '?').toString();
-    final agentType = (row['agent_type'] ?? '').toString();
-    final classification = (row['classification'] ?? 'unknown').toString();
-    final ageS = row['heartbeat_age_s'];
-    final cls = _classMeta(classification);
-    final busy = _busy.contains(agent);
-    final isPaused = classification == 'on_leave';
-    // Pause/resume not offered for archived agents (no execution to halt).
-    final canToggle = classification != 'retired';
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      decoration: HackerTheme.terminalBox(active: classification == 'live'),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            Container(
-              width: 8, height: 8,
-              decoration: BoxDecoration(color: cls.color, shape: BoxShape.circle),
-            ),
-            const SizedBox(width: 8),
-            if (emoji.isNotEmpty) ...[
-              Text(emoji, style: const TextStyle(fontSize: 14)),
-              const SizedBox(width: 6),
-            ],
-            Expanded(
-              child: Text(agent,
-                  style: HackerTheme.mono(size: 13, color: HackerTheme.green)),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(border: Border.all(color: cls.color)),
-              child: Text(cls.label,
-                  style: HackerTheme.monoNoGlow(size: 8, color: cls.color)),
-            ),
-          ]),
-          if (displayName != agent) ...[
-            const SizedBox(height: 4),
-            Text(displayName,
-                style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.white)),
-          ],
-          const SizedBox(height: 4),
-          Text(
-            [
-              host,
-              if (agentType.isNotEmpty) agentType,
-              if (ageS is num) '${_fmtAge(ageS.toInt())} ago' else 'no heartbeat',
-            ].join(' · '),
-            style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.grey),
-          ),
-          const SizedBox(height: 10),
-          Row(children: [
-            _actionButton(
-              label: 'RUN NOW',
-              onTap: null, // wired in a later PR (run-now endpoint pending)
-              color: HackerTheme.dimText,
-            ),
-            const SizedBox(width: 8),
-            if (canToggle)
-              _actionButton(
-                label: busy ? '…' : (isPaused ? 'RESUME' : 'PAUSE'),
-                onTap: busy ? null : () => _togglePause(row),
-                color: isPaused ? HackerTheme.cyan : HackerTheme.amber,
-              ),
-            const Spacer(),
-            if (canToggle && isPaused)
-              Text('since ${_fmtIso(row['meta']?['leave_started_at'])}',
-                  style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText)),
-          ]),
-        ]),
-      ),
-    );
-  }
-
-  Widget _actionButton({required String label, VoidCallback? onTap, required Color color}) {
-    final disabled = onTap == null;
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-          border: Border.all(color: disabled ? HackerTheme.borderDim : color),
-          color: disabled ? Colors.transparent : color.withValues(alpha: 0.12),
-        ),
-        child: Text(label,
-            style: HackerTheme.mono(
-                size: 9, color: disabled ? HackerTheme.dimText : color)),
-      ),
-    );
-  }
-
-  _ClassMeta _classMeta(String c) {
-    switch (c) {
-      case 'live': return _ClassMeta('LIVE', HackerTheme.green);
-      case 'stale': return _ClassMeta('STALE', HackerTheme.amber);
-      case 'down': return _ClassMeta('DOWN', HackerTheme.red);
-      case 'on_leave': return _ClassMeta('ON LEAVE', HackerTheme.cyan);
-      case 'suppressed': return _ClassMeta('SUPPRESSED', HackerTheme.grey);
-      case 'retired': return _ClassMeta('RETIRED', HackerTheme.dimText);
-      default: return _ClassMeta('UNKNOWN', HackerTheme.grey);
-    }
-  }
-
-  String _fmtAge(int s) {
-    if (s < 60) return '${s}s';
-    if (s < 3600) return '${(s / 60).round()}m';
-    if (s < 86400) return '${(s / 3600).round()}h';
-    return '${(s / 86400).round()}d';
-  }
-
-  String _fmtIso(dynamic v) {
-    if (v == null) return '—';
-    final s = v.toString();
-    if (s.length < 10) return s;
-    return s.substring(0, 10);
-  }
-}
-
-class _ClassMeta {
-  final String label;
-  final Color color;
-  const _ClassMeta(this.label, this.color);
-}
 
 class _ComingSoon extends StatelessWidget {
   final String label;
@@ -426,46 +133,9 @@ class _ComingSoon extends StatelessWidget {
 }
 
 // =============================================================================
-// Legacy daily-content templates editor — now behind the header ⋯ menu.
-// Logic is preserved byte-for-byte from the prior single-purpose Studio tab;
-// it just no longer occupies the default view.
+// Daily-content templates editor — the default Studio segment.
+// Logic preserved from the original single-purpose Studio tab.
 // =============================================================================
-
-class _TemplatesDialog extends StatelessWidget {
-  const _TemplatesDialog();
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: HackerTheme.bgPanel,
-      insetPadding: const EdgeInsets.all(16),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.zero,
-        side: BorderSide(color: HackerTheme.green),
-      ),
-      child: SizedBox(
-        width: 560,
-        height: 640,
-        child: Column(children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: HackerTheme.borderDim)),
-            ),
-            child: Row(children: [
-              Text('// daily-content themes', style: HackerTheme.mono(size: 13, color: HackerTheme.green)),
-              const Spacer(),
-              GestureDetector(
-                onTap: () => Navigator.of(context).pop(),
-                child: const Icon(Icons.close, color: HackerTheme.grey, size: 18),
-              ),
-            ]),
-          ),
-          const Expanded(child: _TemplatesView()),
-        ]),
-      ),
-    );
-  }
-}
 
 class _TemplatesView extends StatefulWidget {
   const _TemplatesView();
