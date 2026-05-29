@@ -43,6 +43,41 @@ function writeAuditMemory({ action, agentName, operator, ok, detail }) {
   child.unref();
 }
 
+// === Studio v2 agent classifier ===
+// MIRROR of @naca/tools/src/check-agent-status.js classify() — also mirrored
+// in naca-monitor/src/checks/heartbeats.js (skip ladder there, classifier
+// here). Drift contract: any change to the threshold table or branch order
+// in the canonical @naca/tools file MUST be ported here and to naca-monitor
+// in the same change set. See agent-registry-schema-v1.md §2.6 for the
+// on_leave vs suppress_alerts distinction. This duplication is the MVP
+// compromise — the canonical source is monorepo-local and naca-mcp-bridge
+// speaks MCP not REST, so neither (a) workspace dep nor (c) HTTP-proxy
+// landed cleanly in the time available.
+const CLASSIFY_STALE_MS = 5 * 60 * 1000;
+const CLASSIFY_DOWN_MS = 15 * 60 * 1000;
+function cadenceWindowMinutes(cadence) {
+  if (cadence === 'hourly') return 70;
+  if (cadence === 'weekly') return 8 * 24 * 60;
+  if (typeof cadence === 'string' && cadence.startsWith('daily')) return 25 * 60;
+  return 24 * 60;
+}
+function classifyAgent({ ageMs, reg }) {
+  if (reg?.status === 'archived') return 'retired';
+  if (reg?.meta?.on_leave === true) return 'on_leave';
+  if (reg?.meta?.suppress_alerts === true) return 'suppressed';
+  const cadence = reg?.meta?.cadence;
+  const isScheduled = reg?.meta?.always_running === false || cadence != null;
+  if (isScheduled) {
+    if (ageMs === null) return 'down';
+    const okMs = cadenceWindowMinutes(cadence) * 60 * 1000;
+    return ageMs <= okMs ? 'live' : 'down';
+  }
+  if (ageMs === null) return 'unknown';
+  if (ageMs > CLASSIFY_DOWN_MS) return 'down';
+  if (ageMs > CLASSIFY_STALE_MS) return 'stale';
+  return 'live';
+}
+
 // === MinIO media bytes — fixes mixed-content for browser image render ======
 // Pulls minio-nas creds from neo-brain credentials vault on boot. Replicates
 // Siti's s3SignedGet helper (SigV4 presigned GET) so we can sign URLs without
@@ -905,6 +940,64 @@ const server = http.createServer(async (req, res) => {
         queue: { pending: pending.count || 0, running: running.count || 0, failed: failed.count || 0 },
         locks: locks.data || [],
       });
+    } catch (e) { json(res, { error: e.message }, 500); }
+    return;
+  }
+
+  // GET /api/studio/agents — Studio v2 AGENTS view data source.
+  // Joins agent_registry + agent_heartbeats and classifies each row
+  // server-side so Flutter doesn't reimplement the classifier (see the
+  // MIRROR comment above classifyAgent). Returned shape is render-ready:
+  // {rows: [{agent_name, display_name, emoji, host, agent_type, status,
+  //          meta, heartbeat_age_s, last_reported_at, classification}]}.
+  // Sorted: archived/retired pushed to bottom, then by classification
+  // urgency (down > stale > on_leave > suppressed > live), then name.
+  if (urlPath === '/api/studio/agents' && req.method === 'GET') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    try {
+      const [regResp, hbResp] = await Promise.all([
+        supabase.from('agent_registry')
+          .select('agent_name, display_name, emoji, role_description, host, agent_type, status, meta, updated_at'),
+        supabase.from('agent_heartbeats')
+          .select('agent_name, status, reported_at')
+          .order('reported_at', { ascending: false }),
+      ]);
+      if (regResp.error) throw regResp.error;
+      if (hbResp.error) throw hbResp.error;
+      // Pick the most-recent heartbeat per agent (the select is already
+      // ordered DESC so first occurrence wins).
+      const latestHb = new Map();
+      for (const h of hbResp.data || []) {
+        if (!latestHb.has(h.agent_name)) latestHb.set(h.agent_name, h);
+      }
+      const now = Date.now();
+      const rows = (regResp.data || []).map((reg) => {
+        const hb = latestHb.get(reg.agent_name) || null;
+        const ageMs = hb?.reported_at ? now - new Date(hb.reported_at).getTime() : null;
+        const classification = classifyAgent({ ageMs, reg });
+        return {
+          agent_name: reg.agent_name,
+          display_name: reg.display_name,
+          emoji: reg.emoji,
+          role_description: reg.role_description,
+          host: reg.host,
+          agent_type: reg.agent_type,
+          status: reg.status,
+          meta: reg.meta || {},
+          heartbeat_age_s: ageMs !== null ? Math.round(ageMs / 1000) : null,
+          last_reported_at: hb?.reported_at || null,
+          classification,
+        };
+      });
+      // Sort urgency-first: operator should see problems before steady-state.
+      const urgency = { down: 0, stale: 1, on_leave: 2, suppressed: 3, live: 4, unknown: 5, retired: 6 };
+      rows.sort((a, b) => {
+        const ua = urgency[a.classification] ?? 99;
+        const ub = urgency[b.classification] ?? 99;
+        if (ua !== ub) return ua - ub;
+        return a.agent_name.localeCompare(b.agent_name);
+      });
+      json(res, { rows });
     } catch (e) { json(res, { error: e.message }, 500); }
     return;
   }
