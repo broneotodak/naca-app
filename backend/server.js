@@ -1002,6 +1002,49 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // GET /api/studio/jobs — Studio v2 JOBS view data source. Three buckets:
+  //   running  — agent_commands in flight (status not done/failed/cancelled)
+  //   recent   — agent_commands finished (status done|failed), newest first
+  //   upcoming — scheduled_actions waiting to fire, soonest first
+  // Bucketing is by STATUS, not completed_at: cancelled commands leave
+  // completed_at NULL (verified — a 39-day backlog of expired-cancelled rows
+  // would otherwise masquerade as "running"). Cancelled rows are excluded from
+  // both live buckets — they're the abandoned/expired tail, not active work.
+  // The big `payload` / `action_payload` blobs are excluded to keep this lean
+  // for the mobile client; `result` is kept so failed jobs show their error.
+  if (urlPath === '/api/studio/jobs' && req.method === 'GET') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    try {
+      const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') || '25'), 1), 100);
+      const cmdCols = 'id, from_agent, to_agent, command, status, priority, retry_count, max_retries, created_at, claimed_at, completed_at, expires_at, result';
+      const schedCols = 'id, fire_at, action_kind, status, attempts, max_attempts, recurrence, description, created_by, created_at';
+      const [running, recent, upcoming] = await Promise.all([
+        supabase.from('agent_commands').select(cmdCols)
+          .not('status', 'in', '(done,failed,cancelled)').order('created_at', { ascending: false }).limit(limit),
+        supabase.from('agent_commands').select(cmdCols)
+          .in('status', ['done', 'failed']).order('created_at', { ascending: false }).limit(limit),
+        supabase.from('scheduled_actions').select(schedCols)
+          .eq('status', 'scheduled').order('fire_at', { ascending: true }).limit(limit),
+      ]);
+      if (running.error) throw running.error;
+      if (recent.error) throw recent.error;
+      if (upcoming.error) throw upcoming.error;
+      const recentRows = recent.data || [];
+      json(res, {
+        running: running.data || [],
+        recent: recentRows,
+        upcoming: upcoming.data || [],
+        stats: {
+          running: (running.data || []).length,
+          recent_done: recentRows.filter((r) => r.status === 'done').length,
+          recent_failed: recentRows.filter((r) => r.status === 'failed').length,
+          upcoming: (upcoming.data || []).length,
+        },
+      });
+    } catch (e) { json(res, { error: e.message }, 500); }
+    return;
+  }
+
   // =============================================
   // GAM (Workspace gateway) — Phase 4b Step 1A
   // Read-only endpoints. SSH→TDCC→gam→parse. Audited to neo-brain.gam_audit.
