@@ -1045,6 +1045,48 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // GET /api/studio/costs — Studio v2 COST view, provider-activity half.
+  // Month-to-date generation activity per provider from creator_billing.
+  // IMPORTANT: creator_billing logs usage EVENTS, not dollars — usd_cents is
+  // currently NULL on every row, so `cost_tracked` is false and the client
+  // shows event counts (not fabricated $). If per-call pricing is ever wired
+  // into usd_cents, the same shape starts reporting real dollars automatically.
+  // The subscriptions/bills half of the COST tab comes from GET /api/costs.
+  if (urlPath === '/api/studio/costs' && req.method === 'GET') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    try {
+      const now = new Date();
+      const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
+      const { data, error } = await supabase.from('creator_billing')
+        .select('tool_name, status, kind, usd_cents')
+        .gte('created_at', monthStart);
+      if (error) throw error;
+      const rows = data || [];
+      const byProvider = {};
+      let billedCents = 0;
+      for (const r of rows) {
+        const k = r.tool_name || 'unknown';
+        const p = byProvider[k] || (byProvider[k] = { tool_name: k, events: 0, ok: 0, failed: 0, usd_cents: 0, has_usd: false });
+        p.events += 1;
+        if (r.status === 'success') p.ok += 1;
+        else if (r.status === 'failed') p.failed += 1;
+        if (r.usd_cents != null) { p.usd_cents += r.usd_cents; p.has_usd = true; billedCents += r.usd_cents; }
+      }
+      const providers = Object.values(byProvider).sort((a, b) => b.events - a.events);
+      json(res, {
+        window: 'month-to-date',
+        month: monthStart.slice(0, 7),
+        providers,
+        totals: {
+          events: rows.length,
+          billed_usd: billedCents / 100,
+          cost_tracked: billedCents > 0,
+        },
+      });
+    } catch (e) { json(res, { error: e.message }, 500); }
+    return;
+  }
+
   // =============================================
   // GAM (Workspace gateway) — Phase 4b Step 1A
   // Read-only endpoints. SSH→TDCC→gam→parse. Audited to neo-brain.gam_audit.

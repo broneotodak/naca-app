@@ -9,19 +9,21 @@ import '../theme.dart';
 ///
 /// 3-segment shell: TEMPLATES (default — daily-content theme editor),
 /// JOBS (live + recent agent_commands and upcoming scheduled_actions),
-/// COST (placeholder).
+/// COST (subscriptions/bills + month-to-date provider activity).
 ///
 /// Pause/resume of individual agents lives on the HQ tab, where the agent
 /// listing already is — see dashboard_screen.dart `_buildAgentCard`. The
 /// `/api/studio/agents` backend endpoint remains live but is currently
-/// unused by the UI; future segments (COST / RUN NOW) will consume their
-/// own purpose-built endpoints.
+/// unused by the UI; future segments (RUN NOW) will consume their own
+/// purpose-built endpoints.
 ///
 /// Backend endpoints used here:
 ///   - `GET   /api/content-templates`          — templates list
 ///   - `PATCH /api/content-templates/{id}`     — toggle / edit
 ///   - `POST  /api/content-templates`          — create
 ///   - `GET   /api/studio/jobs`                — JOBS view (running/recent/upcoming)
+///   - `GET   /api/costs`                      — COST view: subscriptions/bills
+///   - `GET   /api/studio/costs`               — COST view: MTD provider activity
 class StudioScreen extends StatefulWidget {
   const StudioScreen({super.key});
 
@@ -106,33 +108,11 @@ class _StudioScreenState extends State<StudioScreen> {
       case _Segment.jobs:
         return const _JobsView();
       case _Segment.cost:
-        return const _ComingSoon(label: 'COST', detail: 'Month-to-date per agent + per provider');
+        return const _CostView();
     }
   }
 }
 
-
-class _ComingSoon extends StatelessWidget {
-  final String label;
-  final String detail;
-  const _ComingSoon({required this.label, required this.detail});
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text('// $label — coming soon',
-              style: HackerTheme.mono(size: 12, color: HackerTheme.dimText)),
-          const SizedBox(height: 6),
-          Text(detail,
-              textAlign: TextAlign.center,
-              style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.grey)),
-        ]),
-      ),
-    );
-  }
-}
 
 // =============================================================================
 // JOBS view — fleet work at a glance: in-flight + recently-finished
@@ -392,6 +372,270 @@ class _JobsViewState extends State<_JobsView> {
             Text('attempts $attempts/$maxAttempts',
                 style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.grey)),
           ],
+        ]),
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// COST view — two honest halves:
+//   SUBSCRIPTIONS  — recurring SaaS/infra bills (GET /api/costs)
+//   PROVIDER ACT.  — month-to-date generation events per provider
+//                    (GET /api/studio/costs). creator_billing logs usage,
+//                    not dollars (usd_cents is NULL today), so when
+//                    cost_tracked is false we show event counts, not $.
+// Polls every 60s (cost data changes slowly).
+// =============================================================================
+
+class _CostView extends StatefulWidget {
+  const _CostView();
+  @override
+  State<_CostView> createState() => _CostViewState();
+}
+
+class _CostViewState extends State<_CostView> {
+  List<Map<String, dynamic>> _subs = [];
+  double _subTotalUsd = 0;
+  List<Map<String, dynamic>> _providers = [];
+  bool _costTracked = false;
+  int _providerEvents = 0;
+  double _billedUsd = 0;
+  String _month = '';
+  bool _loading = true;
+  String? _error;
+  Timer? _poll;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+    _poll = Timer.periodic(const Duration(seconds: 60), (_) => _load(silent: true));
+  }
+
+  @override
+  void dispose() {
+    _poll?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _load({bool silent = false}) async {
+    if (!silent && mounted) setState(() { _loading = true; _error = null; });
+    try {
+      final headers = {'Authorization': 'Bearer ${AppConfig.authToken}'};
+      final results = await Future.wait([
+        http.get(Uri.parse('${AppConfig.apiBaseUrl}/api/costs'), headers: headers).timeout(const Duration(seconds: 20)),
+        http.get(Uri.parse('${AppConfig.apiBaseUrl}/api/studio/costs'), headers: headers).timeout(const Duration(seconds: 15)),
+      ]);
+      final subsRes = results[0];
+      final provRes = results[1];
+      if (subsRes.statusCode >= 400 && provRes.statusCode >= 400) {
+        if (mounted) setState(() { _loading = false; _error = 'HTTP ${subsRes.statusCode}/${provRes.statusCode}'; });
+        return;
+      }
+      final subsBody = subsRes.statusCode < 400 ? jsonDecode(subsRes.body) as Map<String, dynamic> : const {};
+      final provBody = provRes.statusCode < 400 ? jsonDecode(provRes.body) as Map<String, dynamic> : const {};
+      if (mounted) {
+        setState(() {
+          _subs = List<Map<String, dynamic>>.from(subsBody['services'] ?? const []);
+          _subTotalUsd = (subsBody['totalEstimate'] as num?)?.toDouble() ?? 0;
+          _providers = List<Map<String, dynamic>>.from(provBody['providers'] ?? const []);
+          final totals = (provBody['totals'] as Map?) ?? const {};
+          _costTracked = totals['cost_tracked'] == true;
+          _providerEvents = (totals['events'] as num?)?.toInt() ?? 0;
+          _billedUsd = (totals['billed_usd'] as num?)?.toDouble() ?? 0;
+          _month = (provBody['month'] ?? '').toString();
+          _loading = false;
+          _error = null;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() { _loading = false; _error = e.toString(); });
+    }
+  }
+
+  String _money(num v, String cur) {
+    final sym = cur == 'usd' ? '\$' : (cur == 'eur' ? '€' : (cur == 'myr' ? 'RM' : ''));
+    final n = v % 1 == 0 ? v.toStringAsFixed(0) : v.toStringAsFixed(2);
+    return '$sym$n${sym.isEmpty ? ' ${cur.toUpperCase()}' : ''}';
+  }
+
+  Color _subStatusColor(String s) {
+    switch (s) {
+      case 'active':
+        return HackerTheme.green;
+      case 'estimated':
+        return HackerTheme.amber;
+      case 'unknown':
+        return HackerTheme.red;
+      default:
+        return HackerTheme.grey;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator(color: HackerTheme.green));
+    }
+    if (_error != null) {
+      return Center(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text('// load error', style: HackerTheme.mono(size: 12, color: HackerTheme.red)),
+          const SizedBox(height: 6),
+          Text(_error!, style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.grey)),
+          const SizedBox(height: 12),
+          TextButton(
+            onPressed: _load,
+            child: Text('RETRY', style: HackerTheme.mono(size: 11, color: HackerTheme.green)),
+          ),
+        ]),
+      );
+    }
+    return RefreshIndicator(
+      color: HackerTheme.green,
+      backgroundColor: HackerTheme.bgPanel,
+      onRefresh: _load,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 40),
+        children: [
+          _sectionHeader('SUBSCRIPTIONS', '~${_money(_subTotalUsd, 'usd')}/mo', HackerTheme.green),
+          if (_subs.isEmpty) _empty('no subscription data'),
+          ..._subs.map(_subCard),
+          const SizedBox(height: 14),
+          _sectionHeader('PROVIDER ACTIVITY · ${_month.isEmpty ? 'MTD' : _month}',
+              _costTracked ? _money(_billedUsd, 'usd') : '$_providerEvents events', HackerTheme.cyan),
+          if (!_costTracked)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8, left: 2, right: 2),
+              child: Text(
+                '// usage events — per-call \$ not tracked yet (creator_billing.usd_cents unset)',
+                style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.dimText),
+              ),
+            ),
+          if (_providers.isEmpty) _empty('no provider activity this month'),
+          ..._providers.map(_providerCard),
+        ],
+      ),
+    );
+  }
+
+  Widget _sectionHeader(String label, String trailing, Color color) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8, top: 2),
+      child: Row(children: [
+        Text('// $label', style: HackerTheme.mono(size: 11, color: color)),
+        const Spacer(),
+        Text(trailing, style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.white)),
+      ]),
+    );
+  }
+
+  Widget _empty(String msg) => Padding(
+        padding: const EdgeInsets.only(bottom: 10, left: 4),
+        child: Text('  $msg', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.dimText)),
+      );
+
+  Widget _subCard(Map<String, dynamic> s) {
+    final name = (s['name'] ?? '?').toString();
+    final cost = (s['cost'] ?? 0) as num;
+    final cur = (s['currency'] ?? 'usd').toString();
+    final usage = (s['usage'] ?? '').toString();
+    final status = (s['status'] ?? '').toString();
+    final tier = s['tier']?.toString();
+    final note = s['note']?.toString();
+    final color = _subStatusColor(status);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: HackerTheme.terminalBox(),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Expanded(
+              child: Text(name, style: HackerTheme.mono(size: 12, color: HackerTheme.green),
+                  overflow: TextOverflow.ellipsis),
+            ),
+            Text(_money(cost, cur), style: HackerTheme.mono(size: 12, color: HackerTheme.white)),
+          ]),
+          if (usage.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(usage, style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.grey),
+                maxLines: 2, overflow: TextOverflow.ellipsis),
+          ],
+          const SizedBox(height: 6),
+          Row(children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(border: Border.all(color: color, width: 1)),
+              child: Text(status.isEmpty ? '?' : status.toUpperCase(),
+                  style: HackerTheme.monoNoGlow(size: 8, color: color)),
+            ),
+            if (tier != null) ...[
+              const SizedBox(width: 6),
+              Text(tier.toUpperCase(), style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.cyan)),
+            ],
+            if (note != null && note.isNotEmpty) ...[
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(note, style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText),
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
+              ),
+            ],
+          ]),
+        ]),
+      ),
+    );
+  }
+
+  Widget _providerCard(Map<String, dynamic> p) {
+    final name = (p['tool_name'] ?? '?').toString();
+    final events = (p['events'] ?? 0) as num;
+    final ok = (p['ok'] ?? 0) as num;
+    final failed = (p['failed'] ?? 0) as num;
+    final hasUsd = p['has_usd'] == true;
+    final usd = ((p['usd_cents'] ?? 0) as num) / 100.0;
+    final okFrac = events > 0 ? ok / events : 0.0;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: HackerTheme.terminalBox(),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Expanded(
+              child: Text(name, style: HackerTheme.mono(size: 12, color: HackerTheme.cyan),
+                  overflow: TextOverflow.ellipsis),
+            ),
+            Text(hasUsd ? _money(usd, 'usd') : '$events',
+                style: HackerTheme.mono(size: 12, color: HackerTheme.white)),
+          ]),
+          const SizedBox(height: 6),
+          // success/fail bar
+          ClipRect(
+            child: Row(children: [
+              Expanded(
+                flex: (okFrac * 100).round().clamp(0, 100),
+                child: Container(height: 4, color: HackerTheme.green),
+              ),
+              Expanded(
+                flex: (100 - (okFrac * 100).round()).clamp(0, 100),
+                child: Container(height: 4, color: failed > 0 ? HackerTheme.red : HackerTheme.borderDim),
+              ),
+            ]),
+          ),
+          const SizedBox(height: 5),
+          Row(children: [
+            Text('$events events', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.grey)),
+            const SizedBox(width: 10),
+            Text('$ok ok', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.green)),
+            if (failed > 0) ...[
+              const SizedBox(width: 8),
+              Text('$failed fail', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.red)),
+            ],
+          ]),
         ]),
       ),
     );
