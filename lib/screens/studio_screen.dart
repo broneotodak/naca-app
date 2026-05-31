@@ -869,7 +869,9 @@ class _TemplatesViewState extends State<_TemplatesView> {
               Row(children: [
                 _activeToggle(id, active, busy),
                 const Spacer(),
-                Text('TAP TO EDIT',
+                _runButton(t),
+                const SizedBox(width: 8),
+                Text('EDIT',
                     style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText)),
               ]),
             ]),
@@ -901,6 +903,105 @@ class _TemplatesViewState extends State<_TemplatesView> {
         ),
       ),
     );
+  }
+
+  // RUN NOW — fire an immediate content-creator generate of this theme. Lands
+  // as a draft for the normal approval flow (does NOT auto-post). Spends
+  // generation credits, so it always confirms first.
+  Widget _runButton(Map<String, dynamic> t) {
+    final key = t['key']?.toString() ?? '';
+    final label = (t['display_name']?.toString().isNotEmpty ?? false)
+        ? t['display_name'].toString()
+        : key;
+    final running = _busy.contains('run:$key');
+    return GestureDetector(
+      onTap: (running || key.isEmpty) ? null : () => _runNow(key, label),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(border: Border.all(color: HackerTheme.cyan, width: 1)),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          const Icon(Icons.play_arrow, size: 12, color: HackerTheme.cyan),
+          const SizedBox(width: 3),
+          Text(running ? '...' : 'RUN NOW',
+              style: HackerTheme.mono(size: 9, color: HackerTheme.cyan)),
+        ]),
+      ),
+    );
+  }
+
+  Future<void> _runNow(String templateKey, String label) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: HackerTheme.bgPanel,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.zero,
+          side: BorderSide(color: HackerTheme.cyan),
+        ),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('// run now', style: HackerTheme.mono(size: 13, color: HackerTheme.cyan)),
+              const SizedBox(height: 10),
+              Text('Generate "$label" immediately?',
+                  style: HackerTheme.monoNoGlow(size: 11, color: HackerTheme.white)),
+              const SizedBox(height: 8),
+              Text(
+                'Queues content-creator now instead of waiting for cron. Spends generation credits and lands as a draft for approval — it does NOT auto-post.',
+                style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.grey),
+              ),
+              const SizedBox(height: 16),
+              Row(children: [
+                const Spacer(),
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(false),
+                  child: Text('CANCEL', style: HackerTheme.mono(size: 11, color: HackerTheme.grey)),
+                ),
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: () => Navigator.of(ctx).pop(true),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: HackerTheme.cyan),
+                      color: HackerTheme.greenDim,
+                    ),
+                    child: Text('RUN NOW', style: HackerTheme.mono(size: 11, color: HackerTheme.cyan)),
+                  ),
+                ),
+              ]),
+            ]),
+          ),
+        ),
+      ),
+    );
+    if (ok != true) return;
+    setState(() => _busy.add('run:$templateKey'));
+    try {
+      final res = await http.post(
+        Uri.parse('${AppConfig.apiBaseUrl}/api/agents/run-now'),
+        headers: {
+          'Authorization': 'Bearer ${AppConfig.authToken}',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'agent': 'content-creator',
+          'command': 'generate_theme',
+          'template_key': templateKey,
+        }),
+      ).timeout(const Duration(seconds: 15));
+      if (res.statusCode >= 400) {
+        _snack('Run failed: ${_errOf(res)}', HackerTheme.red);
+      } else {
+        _snack('Queued "$label" — watch the JOBS tab', HackerTheme.green);
+      }
+    } catch (e) {
+      _snack('Run error: $e', HackerTheme.red);
+    } finally {
+      if (mounted) setState(() => _busy.remove('run:$templateKey'));
+    }
   }
 }
 

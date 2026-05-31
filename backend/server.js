@@ -1087,6 +1087,51 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // POST /api/agents/run-now — operator-triggered immediate agent run.
+  // Tightly ALLOWLISTED (not an arbitrary command bus): today only
+  // content-creator/generate_theme — the "generate today's content now"
+  // action behind the Studio RUN NOW button. Inserts an agent_commands row
+  // the agent claims on its next poll; output lands as a draft for the normal
+  // approval flow (this does NOT post to public channels — that stays gated
+  // behind /api/content-drafts/:id/approve). Refuses if the target is
+  // operator-paused (on_leave), since the agent would skip a queued command.
+  if (urlPath === '/api/agents/run-now' && req.method === 'POST') {
+    if (!supabase) { json(res, { error: 'neo-brain not configured' }, 503); return; }
+    readBody(req, async (body) => {
+      try {
+        const agent = (body.agent || 'content-creator').toString();
+        const command = (body.command || 'generate_theme').toString();
+        const ALLOWED = { 'content-creator': ['generate_theme'] };
+        if (!ALLOWED[agent] || !ALLOWED[agent].includes(command)) {
+          json(res, { error: `run-now not allowed for ${agent}/${command}` }, 400); return;
+        }
+        // Build a payload from known-safe fields only.
+        const payload = {};
+        if (command === 'generate_theme' && body.template_key) {
+          payload.template_key = String(body.template_key);
+        }
+        // Refuse on operator pause — a queued command would just be skipped.
+        const { data: regRows, error: regErr } = await supabase
+          .from('agent_registry').select('meta').eq('agent_name', agent).limit(1);
+        if (regErr) throw regErr;
+        if (regRows?.[0]?.meta?.on_leave === true) {
+          json(res, { error: `${agent} is paused (on_leave) — resume it on HQ before running`, on_leave: true }, 409);
+          return;
+        }
+        const { data, error } = await supabase.from('agent_commands').insert({
+          from_agent: 'naca-app',
+          to_agent: agent,
+          command,
+          payload,
+          priority: 8,
+        }).select('id, to_agent, command, payload, status, created_at').single();
+        if (error) throw error;
+        json(res, { ok: true, command: data, note: 'queued — watch the JOBS tab' }, 201);
+      } catch (e) { json(res, { error: e.message }, 500); }
+    });
+    return;
+  }
+
   // =============================================
   // GAM (Workspace gateway) — Phase 4b Step 1A
   // Read-only endpoints. SSH→TDCC→gam→parse. Audited to neo-brain.gam_audit.
