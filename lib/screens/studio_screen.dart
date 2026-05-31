@@ -8,18 +8,20 @@ import '../theme.dart';
 /// STUDIO — operator console for the NACA fleet.
 ///
 /// 3-segment shell: TEMPLATES (default — daily-content theme editor),
-/// JOBS (placeholder), COST (placeholder).
+/// JOBS (live + recent agent_commands and upcoming scheduled_actions),
+/// COST (placeholder).
 ///
 /// Pause/resume of individual agents lives on the HQ tab, where the agent
 /// listing already is — see dashboard_screen.dart `_buildAgentCard`. The
 /// `/api/studio/agents` backend endpoint remains live but is currently
-/// unused by the UI; future segments (JOBS / COST / RUN NOW) will consume
-/// their own purpose-built endpoints.
+/// unused by the UI; future segments (COST / RUN NOW) will consume their
+/// own purpose-built endpoints.
 ///
 /// Backend endpoints used here:
 ///   - `GET   /api/content-templates`          — templates list
 ///   - `PATCH /api/content-templates/{id}`     — toggle / edit
 ///   - `POST  /api/content-templates`          — create
+///   - `GET   /api/studio/jobs`                — JOBS view (running/recent/upcoming)
 class StudioScreen extends StatefulWidget {
   const StudioScreen({super.key});
 
@@ -102,7 +104,7 @@ class _StudioScreenState extends State<StudioScreen> {
       case _Segment.templates:
         return const _TemplatesView();
       case _Segment.jobs:
-        return const _ComingSoon(label: 'JOBS', detail: 'Live + recent agent_commands and scheduled_actions');
+        return const _JobsView();
       case _Segment.cost:
         return const _ComingSoon(label: 'COST', detail: 'Month-to-date per agent + per provider');
     }
@@ -126,6 +128,270 @@ class _ComingSoon extends StatelessWidget {
           Text(detail,
               textAlign: TextAlign.center,
               style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.grey)),
+        ]),
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// JOBS view — fleet work at a glance: in-flight + recently-finished
+// agent_commands and upcoming scheduled_actions. Read-only; consumes
+// GET /api/studio/jobs. Polls every 15s.
+// =============================================================================
+
+class _JobsView extends StatefulWidget {
+  const _JobsView();
+  @override
+  State<_JobsView> createState() => _JobsViewState();
+}
+
+class _JobsViewState extends State<_JobsView> {
+  List<Map<String, dynamic>> _running = [];
+  List<Map<String, dynamic>> _recent = [];
+  List<Map<String, dynamic>> _upcoming = [];
+  Map<String, int> _stats = {};
+  bool _loading = true;
+  String? _error;
+  Timer? _poll;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+    _poll = Timer.periodic(const Duration(seconds: 15), (_) => _load(silent: true));
+  }
+
+  @override
+  void dispose() {
+    _poll?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _load({bool silent = false}) async {
+    if (!silent && mounted) setState(() { _loading = true; _error = null; });
+    try {
+      final res = await http.get(
+        Uri.parse('${AppConfig.apiBaseUrl}/api/studio/jobs?limit=25'),
+        headers: {'Authorization': 'Bearer ${AppConfig.authToken}'},
+      ).timeout(const Duration(seconds: 15));
+      if (res.statusCode >= 400) {
+        if (mounted) setState(() { _loading = false; _error = 'HTTP ${res.statusCode}'; });
+        return;
+      }
+      final body = jsonDecode(res.body) as Map<String, dynamic>;
+      if (mounted) {
+        setState(() {
+          _running = List<Map<String, dynamic>>.from(body['running'] ?? const []);
+          _recent = List<Map<String, dynamic>>.from(body['recent'] ?? const []);
+          _upcoming = List<Map<String, dynamic>>.from(body['upcoming'] ?? const []);
+          _stats = Map<String, int>.from(
+              (body['stats'] as Map?)?.map((k, v) => MapEntry(k.toString(), (v as num).toInt())) ?? {});
+          _loading = false;
+          _error = null;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() { _loading = false; _error = e.toString(); });
+    }
+  }
+
+  // ---- helpers ----
+
+  /// Compact relative time. Past → "3m ago"; future → "in 2h".
+  String _rel(String? iso) {
+    if (iso == null) return '';
+    final t = DateTime.tryParse(iso);
+    if (t == null) return '';
+    final diff = DateTime.now().difference(t);
+    final future = diff.isNegative;
+    final s = diff.abs();
+    String mag;
+    if (s.inSeconds < 60) {
+      mag = '${s.inSeconds}s';
+    } else if (s.inMinutes < 60) {
+      mag = '${s.inMinutes}m';
+    } else if (s.inHours < 24) {
+      mag = '${s.inHours}h';
+    } else {
+      mag = '${s.inDays}d';
+    }
+    return future ? 'in $mag' : '$mag ago';
+  }
+
+  Color _statusColor(String status) {
+    switch (status) {
+      case 'done':
+        return HackerTheme.green;
+      case 'failed':
+        return HackerTheme.red;
+      case 'cancelled':
+        return HackerTheme.grey;
+      case 'scheduled':
+        return HackerTheme.amber;
+      default: // pending / claimed / running / in-flight
+        return HackerTheme.cyan;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator(color: HackerTheme.green));
+    }
+    if (_error != null) {
+      return Center(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text('// load error', style: HackerTheme.mono(size: 12, color: HackerTheme.red)),
+          const SizedBox(height: 6),
+          Text(_error!, style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.grey)),
+          const SizedBox(height: 12),
+          TextButton(
+            onPressed: _load,
+            child: Text('RETRY', style: HackerTheme.mono(size: 11, color: HackerTheme.green)),
+          ),
+        ]),
+      );
+    }
+    if (_running.isEmpty && _recent.isEmpty && _upcoming.isEmpty) {
+      return Center(
+          child: Text('// no jobs — queue is idle',
+              style: HackerTheme.mono(size: 11, color: HackerTheme.dimText)));
+    }
+    return RefreshIndicator(
+      color: HackerTheme.green,
+      backgroundColor: HackerTheme.bgPanel,
+      onRefresh: _load,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 40),
+        children: [
+          _section('RUNNING', _running.length, HackerTheme.cyan),
+          if (_running.isEmpty) _empty('nothing in flight'),
+          ..._running.map(_commandCard),
+          const SizedBox(height: 10),
+          _section('UPCOMING', _upcoming.length, HackerTheme.amber),
+          if (_upcoming.isEmpty) _empty('nothing scheduled'),
+          ..._upcoming.map(_scheduledCard),
+          const SizedBox(height: 10),
+          _section('RECENT',
+              (_stats['recent_done'] ?? 0) + (_stats['recent_failed'] ?? 0),
+              HackerTheme.green),
+          if (_recent.isEmpty) _empty('no recent finishes'),
+          ..._recent.map(_commandCard),
+        ],
+      ),
+    );
+  }
+
+  Widget _section(String label, int count, Color color) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8, top: 2),
+      child: Row(children: [
+        Text('// $label', style: HackerTheme.mono(size: 11, color: color)),
+        const SizedBox(width: 8),
+        Text('[$count]', style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.grey)),
+        const Expanded(child: Divider(color: HackerTheme.borderDim, indent: 10)),
+      ]),
+    );
+  }
+
+  Widget _empty(String msg) => Padding(
+        padding: const EdgeInsets.only(bottom: 10, left: 4),
+        child: Text('  $msg', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.dimText)),
+      );
+
+  Widget _tag(String text, Color color) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(border: Border.all(color: color, width: 1)),
+        child: Text(text, style: HackerTheme.monoNoGlow(size: 8, color: color)),
+      );
+
+  /// agent_commands row → card (used for both RUNNING and RECENT).
+  Widget _commandCard(Map<String, dynamic> c) {
+    final status = (c['status'] ?? 'pending').toString();
+    final color = _statusColor(status);
+    final from = (c['from_agent'] ?? '?').toString();
+    final to = (c['to_agent'] ?? '?').toString();
+    final cmd = (c['command'] ?? '?').toString();
+    final done = c['completed_at'] != null;
+    final when = _rel((done ? c['completed_at'] : c['created_at'])?.toString());
+    final retries = (c['retry_count'] ?? 0) as num;
+    final failed = status == 'failed';
+    final result = c['result']?.toString();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: HackerTheme.terminalBox(),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Expanded(
+              child: Text(cmd, style: HackerTheme.mono(size: 12, color: HackerTheme.green),
+                  overflow: TextOverflow.ellipsis),
+            ),
+            _tag(status.toUpperCase(), color),
+          ]),
+          const SizedBox(height: 5),
+          Text('$from → $to',
+              style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.white)),
+          const SizedBox(height: 4),
+          Row(children: [
+            Text(when, style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.grey)),
+            if (retries > 0) ...[
+              const SizedBox(width: 8),
+              Text('↺ $retries', style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.amber)),
+            ],
+          ]),
+          if (failed && result != null && result.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              result.length > 160 ? '${result.substring(0, 160)}…' : result,
+              style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.red),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ]),
+      ),
+    );
+  }
+
+  /// scheduled_actions row → card (UPCOMING).
+  Widget _scheduledCard(Map<String, dynamic> s) {
+    final kind = (s['action_kind'] ?? '?').toString();
+    final desc = (s['description'] ?? '').toString();
+    final fire = _rel(s['fire_at']?.toString());
+    final recurring = s['recurrence'] != null;
+    final attempts = (s['attempts'] ?? 0) as num;
+    final maxAttempts = (s['max_attempts'] ?? 0) as num;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: HackerTheme.terminalBox(),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Expanded(
+              child: Text(kind, style: HackerTheme.mono(size: 12, color: HackerTheme.amber),
+                  overflow: TextOverflow.ellipsis),
+            ),
+            if (recurring) _tag('RECUR', HackerTheme.cyan),
+            if (recurring) const SizedBox(width: 4),
+            _tag(fire.toUpperCase(), HackerTheme.amber),
+          ]),
+          if (desc.isNotEmpty) ...[
+            const SizedBox(height: 5),
+            Text(desc,
+                style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.white),
+                maxLines: 2, overflow: TextOverflow.ellipsis),
+          ],
+          if (attempts > 0) ...[
+            const SizedBox(height: 4),
+            Text('attempts $attempts/$maxAttempts',
+                style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.grey)),
+          ],
         ]),
       ),
     );
