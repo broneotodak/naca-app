@@ -7,20 +7,21 @@ import '../theme.dart';
 
 /// STUDIO — operator console for the NACA fleet.
 ///
-/// 3-segment shell: TEMPLATES (default — daily-content theme editor),
+/// 4-segment shell: TEMPLATES (default — daily-content theme editor),
+/// AGENTS (read-only per-runner explainer — what each fleet runner does),
 /// JOBS (live + recent agent_commands and upcoming scheduled_actions),
 /// COST (subscriptions/bills + month-to-date provider activity).
 ///
 /// Pause/resume of individual agents lives on the HQ tab, where the agent
 /// listing already is — see dashboard_screen.dart `_buildAgentCard`. The
-/// `/api/studio/agents` backend endpoint remains live but is currently
-/// unused by the UI; future segments (RUN NOW) will consume their own
-/// purpose-built endpoints.
+/// AGENTS segment here is read-only (it explains what each runner does and
+/// its live status); it deliberately does NOT duplicate that control.
 ///
 /// Backend endpoints used here:
 ///   - `GET   /api/content-templates`          — templates list
 ///   - `PATCH /api/content-templates/{id}`     — toggle / edit
 ///   - `POST  /api/content-templates`          — create
+///   - `GET   /api/studio/agents`              — AGENTS view (registry + heartbeat + classification)
 ///   - `GET   /api/studio/jobs`                — JOBS view (running/recent/upcoming)
 ///   - `GET   /api/costs`                      — COST view: subscriptions/bills
 ///   - `GET   /api/studio/costs`               — COST view: MTD provider activity
@@ -31,7 +32,7 @@ class StudioScreen extends StatefulWidget {
   State<StudioScreen> createState() => _StudioScreenState();
 }
 
-enum _Segment { templates, jobs, cost }
+enum _Segment { templates, agents, jobs, cost }
 
 class _StudioScreenState extends State<StudioScreen> {
   _Segment _segment = _Segment.templates;
@@ -73,6 +74,8 @@ class _StudioScreenState extends State<StudioScreen> {
       child: Row(children: [
         _segmentButton('TEMPLATES', _Segment.templates),
         const SizedBox(width: 6),
+        _segmentButton('AGENTS', _Segment.agents),
+        const SizedBox(width: 6),
         _segmentButton('JOBS', _Segment.jobs),
         const SizedBox(width: 6),
         _segmentButton('COST', _Segment.cost),
@@ -105,6 +108,8 @@ class _StudioScreenState extends State<StudioScreen> {
     switch (_segment) {
       case _Segment.templates:
         return const _TemplatesView();
+      case _Segment.agents:
+        return const _AgentsView();
       case _Segment.jobs:
         return const _JobsView();
       case _Segment.cost:
@@ -1251,4 +1256,233 @@ class _TemplateDialogState extends State<_TemplateDialog> {
       ]),
     );
   }
+}
+
+// =============================================================================
+// AGENTS view — read-only per-runner explainer. One card per fleet runner in
+// agent_registry: what it does (role_description), where it runs, and its live
+// classification (live/stale/down/on_leave/suppressed/retired). Consumes
+// GET /api/studio/agents (registry + heartbeats + server-side classifier),
+// polls every 30s. Pause/resume is NOT here — it lives on the HQ tab.
+// =============================================================================
+
+class _AgentsView extends StatefulWidget {
+  const _AgentsView();
+  @override
+  State<_AgentsView> createState() => _AgentsViewState();
+}
+
+class _AgentsViewState extends State<_AgentsView> {
+  List<Map<String, dynamic>> _rows = [];
+  bool _loading = true;
+  String? _error;
+  Timer? _poll;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+    _poll = Timer.periodic(const Duration(seconds: 30), (_) => _load(silent: true));
+  }
+
+  @override
+  void dispose() {
+    _poll?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _load({bool silent = false}) async {
+    if (!silent && mounted) setState(() { _loading = true; _error = null; });
+    try {
+      final res = await http.get(
+        Uri.parse('${AppConfig.apiBaseUrl}/api/studio/agents'),
+        headers: {'Authorization': 'Bearer ${AppConfig.authToken}'},
+      ).timeout(const Duration(seconds: 15));
+      if (res.statusCode >= 400) {
+        if (mounted) setState(() { _loading = false; _error = 'HTTP ${res.statusCode}'; });
+        return;
+      }
+      final body = jsonDecode(res.body) as Map<String, dynamic>;
+      if (mounted) {
+        setState(() {
+          _rows = List<Map<String, dynamic>>.from(body['rows'] ?? const []);
+          _loading = false;
+          _error = null;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() { _loading = false; _error = e.toString(); });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator(color: HackerTheme.green));
+    }
+    if (_error != null) {
+      return Center(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text('// load error', style: HackerTheme.mono(size: 12, color: HackerTheme.red)),
+          const SizedBox(height: 6),
+          Text(_error!, style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.grey)),
+          const SizedBox(height: 12),
+          TextButton(
+            onPressed: () => _load(),
+            child: Text('RETRY', style: HackerTheme.mono(size: 11, color: HackerTheme.green)),
+          ),
+        ]),
+      );
+    }
+    if (_rows.isEmpty) {
+      return Center(
+        child: Text('// no agents in registry',
+            style: HackerTheme.mono(size: 11, color: HackerTheme.dimText)),
+      );
+    }
+    return RefreshIndicator(
+      color: HackerTheme.green,
+      backgroundColor: HackerTheme.bgPanel,
+      onRefresh: () => _load(),
+      child: ListView.builder(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
+        itemCount: _rows.length + 2,
+        itemBuilder: (_, i) {
+          if (i == 0) {
+            return _summary();
+          }
+          if (i == _rows.length + 1) {
+            return _footerHint();
+          }
+          return _agentCard(_rows[i - 1]);
+        },
+      ),
+    );
+  }
+
+  Widget _summary() {
+    final counts = <String, int>{};
+    for (final r in _rows) {
+      final c = (r['classification'] ?? 'unknown').toString();
+      counts[c] = (counts[c] ?? 0) + 1;
+    }
+    Widget chip(String label, int n, Color color) => Container(
+          margin: const EdgeInsets.only(right: 6, bottom: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+          decoration: BoxDecoration(border: Border.all(color: color)),
+          child: Text('$label $n', style: HackerTheme.monoNoGlow(size: 9, color: color)),
+        );
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Wrap(children: [
+        if ((counts['down'] ?? 0) > 0) chip('DOWN', counts['down']!, HackerTheme.red),
+        if ((counts['stale'] ?? 0) > 0) chip('STALE', counts['stale']!, HackerTheme.amber),
+        if ((counts['on_leave'] ?? 0) > 0) chip('ON LEAVE', counts['on_leave']!, HackerTheme.cyan),
+        if ((counts['suppressed'] ?? 0) > 0) chip('SUPPRESSED', counts['suppressed']!, HackerTheme.grey),
+        if ((counts['live'] ?? 0) > 0) chip('LIVE', counts['live']!, HackerTheme.green),
+        if ((counts['unknown'] ?? 0) > 0) chip('UNKNOWN', counts['unknown']!, HackerTheme.grey),
+        if ((counts['retired'] ?? 0) > 0) chip('RETIRED', counts['retired']!, HackerTheme.dimText),
+      ]),
+    );
+  }
+
+  Widget _footerHint() => Padding(
+        padding: const EdgeInsets.only(top: 4, bottom: 12),
+        child: Text('// read-only — pause/resume lives on the HQ tab',
+            textAlign: TextAlign.center,
+            style: HackerTheme.monoNoGlow(size: 8, color: HackerTheme.dimText)),
+      );
+
+  Widget _agentCard(Map<String, dynamic> row) {
+    final agent = row['agent_name'].toString();
+    final emoji = (row['emoji'] ?? '').toString();
+    final displayName = (row['display_name'] ?? agent).toString();
+    final role = (row['role_description'] ?? '').toString();
+    final host = (row['host'] ?? '?').toString();
+    final agentType = (row['agent_type'] ?? '').toString();
+    final classification = (row['classification'] ?? 'unknown').toString();
+    final ageS = row['heartbeat_age_s'];
+    final cls = _classMeta(classification);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: HackerTheme.terminalBox(active: classification == 'live'),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Container(
+              width: 8, height: 8,
+              decoration: BoxDecoration(color: cls.color, shape: BoxShape.circle),
+            ),
+            const SizedBox(width: 8),
+            if (emoji.isNotEmpty) ...[
+              Text(emoji, style: const TextStyle(fontSize: 14)),
+              const SizedBox(width: 6),
+            ],
+            Expanded(
+              child: Text(agent,
+                  style: HackerTheme.mono(size: 13, color: HackerTheme.green)),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(border: Border.all(color: cls.color)),
+              child: Text(cls.label,
+                  style: HackerTheme.monoNoGlow(size: 8, color: cls.color)),
+            ),
+          ]),
+          if (displayName.isNotEmpty && displayName != agent) ...[
+            const SizedBox(height: 4),
+            Text(displayName,
+                style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.white)),
+          ],
+          if (role.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(role,
+                style: HackerTheme.monoNoGlow(size: 10, color: HackerTheme.grey)),
+          ],
+          const SizedBox(height: 6),
+          Text(
+            [
+              host,
+              if (agentType.isNotEmpty) agentType,
+              if (ageS is num) 'seen ${_fmtAge(ageS.toInt())} ago' else 'no heartbeat',
+            ].join(' · '),
+            style: HackerTheme.monoNoGlow(size: 9, color: HackerTheme.dimText),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  _ClassMeta _classMeta(String c) {
+    switch (c) {
+      case 'live': return _ClassMeta('LIVE', HackerTheme.green);
+      case 'down': return _ClassMeta('DOWN', HackerTheme.red);
+      case 'stale': return _ClassMeta('STALE', HackerTheme.amber);
+      case 'on_leave': return _ClassMeta('ON LEAVE', HackerTheme.cyan);
+      case 'suppressed': return _ClassMeta('SUPPRESSED', HackerTheme.grey);
+      case 'retired': return _ClassMeta('RETIRED', HackerTheme.dimText);
+      default: return _ClassMeta('UNKNOWN', HackerTheme.grey);
+    }
+  }
+
+  String _fmtAge(int s) {
+    if (s < 60) {
+      return '${s}s';
+    }
+    if (s < 3600) {
+      return '${s ~/ 60}m';
+    }
+    if (s < 86400) {
+      return '${s ~/ 3600}h';
+    }
+    return '${s ~/ 86400}d';
+  }
+}
+
+class _ClassMeta {
+  final String label;
+  final Color color;
+  const _ClassMeta(this.label, this.color);
 }
