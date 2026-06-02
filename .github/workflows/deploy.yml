@@ -41,6 +41,20 @@ jobs:
         if: steps.changes.outputs.web == '1'
         run: flutter pub get
 
+      # lib/config.dart is gitignored (the backend token is not stored in the repo).
+      # Generate it from the template, injecting authToken from the NACA_AUTH_TOKEN secret.
+      - name: Generate config.dart (authToken from secret)
+        if: steps.changes.outputs.web == '1'
+        env:
+          NACA_AUTH_TOKEN: ${{ secrets.NACA_AUTH_TOKEN }}
+        run: |
+          if [ -z "$NACA_AUTH_TOKEN" ]; then
+            echo "::error::NACA_AUTH_TOKEN secret is not set — web build would ship a broken token"; exit 1
+          fi
+          cp lib/config.dart.example lib/config.dart
+          sed -i "s|__NACA_AUTH_TOKEN__|${NACA_AUTH_TOKEN}|g" lib/config.dart
+          echo "Generated lib/config.dart (authToken injected from secret)"
+
       - name: Build web
         if: steps.changes.outputs.web == '1'
         run: flutter build web --release

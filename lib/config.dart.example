@@ -1,5 +1,20 @@
+/// NACA App Configuration — TEMPLATE.
+///
+/// `lib/config.dart` is gitignored and must NOT be committed. Two ways to create it:
+///   • Local dev:  cp lib/config.dart.example lib/config.dart  then replace
+///                 __NACA_AUTH_TOKEN__ with the real backend token.
+///   • CI:         the deploy workflow generates lib/config.dart from this template,
+///                 injecting __NACA_AUTH_TOKEN__ from the NACA_AUTH_TOKEN GitHub secret.
+///
+/// supabaseAnonKey + URLs are PUBLIC client values (the anon key is RLS-gated and is
+/// designed to ship in the client) — they live here in the clear on purpose. The only
+/// value kept out of the repo is the backend authToken.
 class AppConfig {
-  static const String apiBaseUrl = 'http://YOUR_SERVER_IP:3100';
-  static const String wsUrl = 'ws://YOUR_SERVER_IP:3100';
-  static const String authToken = 'ccc_sk_YOUR_TOKEN_HERE';
+  static const String supabaseUrl = 'https://xsunmervpyrplzarebva.supabase.co';
+  static const String supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzdW5tZXJ2cHlycGx6YXJlYnZhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY1NjUwOTEsImV4cCI6MjA5MjE0MTA5MX0.yP7xJ04rGYl1r-PEUn_RNXqf6_O3hyrJfuUoc42gFOE';
+
+  // CCC terminal backend (HTTPS via nginx reverse proxy)
+  static const String apiBaseUrl = 'https://naca.neotodak.com';
+  static const String wsUrl = 'wss://naca.neotodak.com';
+  static const String authToken = '__NACA_AUTH_TOKEN__';
 }
