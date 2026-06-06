@@ -1311,13 +1311,21 @@ const server = http.createServer(async (req, res) => {
   if (urlPath === '/api/gam/users' && req.method === 'GET') {
     const meta = { from_agent: 'naca-app', requested_by: req.headers['x-requested-by'] || null };
     const q = (url.searchParams.get('q') || '').trim();
-    // Always run as `redirect csv - print users` so output is parseable
-    const args = ['csv', '-', 'print', 'users'];
-    if (q) {
-      // gam's `query` filter uses Directory API search. Valid fields are
-      // email, givenName, familyName. We default to email match — most
-      // common case. Caller can post-filter for fuzzier searches.
-      // Block any quote/semicolon to prevent escaping.
+    const nameQ = (url.searchParams.get('name') || '').trim();
+    // `redirect csv - print users` so output is parseable. Request directory
+    // fields explicitly so callers (search-people / gam_directory_search) get
+    // name + phone + photo, not just primaryEmail. Additive — primaryEmail
+    // stays present for existing consumers.
+    const args = ['csv', '-', 'print', 'users', 'fields',
+      'primaryEmail,name,phones,organizations,orgUnitPath,thumbnailPhotoUrl'];
+    // gam's `query` filter uses Directory API search. `name:` matches given/
+    // family/full name (prefix); `email:` matches the address. name query
+    // takes precedence when given. Block quote/semicolon to prevent escaping
+    // (the surrounding quotes are added here, server-side).
+    if (nameQ) {
+      if (/['";`$\\]/.test(nameQ)) { json(res, { error: 'invalid characters in name' }, 400); return; }
+      args.push('query', `"name:'${nameQ}'"`);
+    } else if (q) {
       if (/['";`$\\]/.test(q)) { json(res, { error: 'invalid characters in q' }, 400); return; }
       args.push('query', `"email:${q}*"`);
     }
