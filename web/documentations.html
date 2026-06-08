@@ -991,7 +991,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   <!-- HARDWARE FLEET -->
   <div class="section" id="fleet">
     <h2>The fleet · hardware</h2>
-    <p>7 active machines + 1 voice device (+ Neo's operator MBP), 3 physical locations, all on a private Tailscale mesh. The xiaozhi dog is the first physical NACA device — proof that any hardware with a mic + speaker can become a Siti node. tr-home is the Threadripper LLM rig at the Kenwingston office (relocated 2026-05-21 from Neo's home) — local fine-tuning + Ollama serving + the FCC wall display.</p>
+    <p>~10 machines + 1 voice device across <strong>6 physical locations</strong>, all on a private Tailscale mesh. <strong>Kenwingston Cyberjaya Office (Todak Studios)</strong> runs tr-home (Threadripper LLM rig — fine-tuning + Ollama + FCC wall display) and the Ugreen NAS. <strong>Kota Warisan Home</strong> runs CLAW + Slave MBP (plus Neo's mobile MBP, the xiaozhi dog, naca-pi, Flipper). Two <strong>Hetzner</strong> VPSes — Siti + Neo-Twin — are in <strong>Ashburn, Virginia (US)</strong>; TDCC + Hermes are in <strong>Hetzner Singapore</strong>. The <strong>Bandung</strong> fleet adds bandung-01 (<strong>Todak Bandung Office</strong> — live 24/7 Ubuntu) and neo-bandung-ofc (<strong>Bandung apartment</strong> — Windows, KIV for 24/7).</p>
   </div>
   <div class="diagram">
     <div class="mermaid">
@@ -1006,27 +1006,33 @@ graph TB
     NEO["📱 Neo's iPhone<br/>WhatsApp + NACA app"]:::client
     DOG["🐕 Xiaozhi Dog<br/>ESP32-S3 · voice I/O<br/>Siti inside"]:::device
 
-    subgraph CLOUD[" ☁️ Hetzner Cloud "]
-        SITI_VPS["<b>Siti VPS</b><br/>178.156.241.204<br/>4 vCPU · 8GB · 150GB<br/>5 active PM2 agents + naca-backend + naca-mcp-bridge-http<br/>siti-router · siti-ingest · deployer · face-service"]:::vps
-        TWIN_VPS["<b>Neo-Twin VPS</b><br/>5.161.126.222<br/>twin-ingest only"]:::vps
+    subgraph CLOUD[" ☁️ Hetzner · Ashburn, Virginia (US) "]
+        SITI_VPS["<b>Siti VPS</b> · CPX31<br/>178.156.241.204<br/>4 vCPU · 8GB<br/>siti-router · siti-ingest · naca-backend · naca-monitor · naca-mcp-bridge-http · face-service"]:::vps
+        TWIN_VPS["<b>Neo-Twin VPS</b><br/>5.161.126.222<br/>neo-twin · twin-ingest"]:::vps
     end
 
-    subgraph SG[" 🇸🇬 Singapore "]
+    subgraph SG[" 🇸🇬 Hetzner · Singapore "]
         TDCC["<b>TDCC VPS</b><br/>5.223.80.244<br/>GAM7 Workspace admin"]:::vps
+        HERMES["<b>Hermes</b> · CPX22<br/>5.223.45.8<br/>isolated twin pilot"]:::vps
     end
 
-    subgraph HOME[" 🏠 Home network · Cyberjaya "]
-        CLAW["<b>CLAW</b> · MBA M4 · 24GB<br/>100.93.159.1<br/>supervisor + claw-command-worker<br/>Worker/monitor — daily-content.sh kept as fallback"]:::mac
-        SLAVE["<b>Slave MBP</b> · M1 Pro · 16GB<br/>100.93.211.9<br/>content-creator + publisher-agent + browser-agent<br/>Creative Fleet — media gen + posting"]:::mac
-        TRHOME["<b>tr-home</b> · Threadripper 7970X · 64GB<br/>RX 7900 XTX · 24GB VRAM · ROCm<br/>100.126.89.7<br/>reviewer · planner · dev — Phase 8<br/>+ Ollama qwen2.5:32b + FCC sidecar + Phase 6 rig"]:::mac
-        MBP["<b>Neo's MBP</b><br/>operator · Claude Code"]:::client
+    subgraph KW[" 🏠 Kota Warisan Home "]
+        CLAW["<b>CLAW</b> · MBA M4 · 24GB<br/>100.93.159.1<br/>supervisor · claw-mac · backup-sync"]:::mac
+        SLAVE["<b>Slave MBP</b> · M-series · 16GB<br/>100.93.211.9<br/>browser-agent · content-creator · publisher-agent · explainer-agent"]:::mac
+        MBP["<b>Neo's MBP</b><br/>operator · Claude Code (mobile)"]:::client
         DOG
         RPI["🥧 <b>naca-pi</b><br/>RPi 4 · 8GB · ARM64<br/>100.114.3.1"]:::device
         FLIP["🐬 <b>Flipper Zero</b><br/>Mflip · Unleashed<br/>Sub-GHz·NFC·RFID·IR·WiFi"]:::device
     end
 
-    subgraph OFFICE[" 🏢 Todak Studios · Kenwingston "]
-        NAS["<b>Ugreen NAS</b><br/>Pentium Gold · 22TB RAID5<br/>Docker containers"]:::nas
+    subgraph OFFICE[" 🏢 Kenwingston Cyberjaya Office · Todak Studios "]
+        TRHOME["<b>tr-home</b> · Threadripper 7970X · 64GB<br/>RX 7900 XTX · 24GB VRAM · ROCm<br/>100.126.89.7<br/>planner · dev · forex-coach · crypto-coach · memory-coach<br/>+ Ollama + FCC sidecar"]:::mac
+        NAS["<b>Ugreen NAS</b><br/>Pentium Gold · 22TB RAID5<br/>100.85.18.97 · Docker<br/>toolsmith · timekeeper · verifier · poster · daily-checkup"]:::nas
+    end
+
+    subgraph BDG[" 🇮🇩 Bandung "]
+        BANDUNG01["<b>bandung-01</b> · Ubuntu (live 24/7)<br/>100.93.60.28<br/>📍 Todak Bandung Office"]:::vps
+        NEOBDG["<b>neo-bandung-ofc</b> · Windows 11 · Ultra 9 185H<br/>100.73.162.32<br/>📍 Bandung apartment · KIV 24/7"]:::vps
     end
 
     NB[("<b>neo-brain</b><br/>Supabase pgVector<br/>shared memory · all agents read/write")]:::brain
@@ -1054,6 +1060,9 @@ graph TB
     RPI -.Tailscale.-> NB
     FLIP ---|USB serial| RPI
 
+    BANDUNG01 <-->|read/write| NB
+    NEOBDG <-->|read/write| NB
+    HERMES -.read-only.-> NB
     linkStyle default stroke:#ef4444,stroke-width:2.5px,color:#fca5a5
     </div>
   </div>
