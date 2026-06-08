@@ -1069,15 +1069,15 @@ graph TB
 
   <div class="grid grid-3">
     <div class="card cyan">
-      <h3>☁️ Siti VPS · Hetzner</h3>
+      <h3>☁️ Siti VPS · Hetzner Ashburn, VA (US)</h3>
       <div class="role">The brain stem (network-facing only — post Phase 8)</div>
       <div class="specs">CPX31 · 4 vCPU · 8GB · Ubuntu 24<br/>178.156.241.204</div>
       <div class="runs">
         <strong>5 active PM2 agents + naca-backend + naca-mcp-bridge-http (refresh 2026-05-11):</strong>
         <ul>
-          <li>siti-router — Siti v2 brain (25 tools, 8 specialists)</li>
+          <li>siti-router — Siti v2 brain (35 tools owner-tier · 10 specialists)</li>
           <li>siti-ingest — WhatsApp bridge (wacli + /send HTTP API)</li>
-          <li>deployer-agent — auto-deploy after merge (SSH-deploys local Hetzner pm2; host-coupled here)</li>
+          <li>naca-monitor — fleet-health snapshot writer (polls 5 detectors · 60s)</li>
           <li>face-service — InsightFace recognition (Python)</li>
           <li>naca-backend — NACA app API + GitHub webhooks</li>
           <li>naca-mcp-bridge-http — Phase 7b, tailnet MCP bridge (<code>100.79.179.67:3906</code>)</li>
@@ -1089,7 +1089,7 @@ graph TB
 
     <div class="card green">
       <h3>🎬 CLAW · "The Studio"</h3>
-      <div class="role">Media generation node — Imel's MBA</div>
+      <div class="role">Worker + fleet-SRE node — Imel's MBA · Kota Warisan Home</div>
       <div class="specs">Apple M4 · 10 cores · 24GB RAM<br/>100.93.159.1 (Tailscale)</div>
       <div class="runs">
         <strong>Specialist role: media gen via cloud APIs:</strong>
@@ -1152,9 +1152,9 @@ graph TB
     </div>
 
     <div class="card cyan">
-      <h3>☁️ Neo-Twin VPS</h3>
+      <h3>☁️ Neo-Twin VPS · Hetzner Ashburn, VA (US)</h3>
       <div class="role">Twin ingestion</div>
-      <div class="specs">Hetzner · 5.161.126.222</div>
+      <div class="specs">Hetzner Ashburn, VA (US) · 5.161.126.222</div>
       <div class="runs">
         <strong>Single-purpose:</strong>
         <ul>
@@ -1166,7 +1166,7 @@ graph TB
 
     <div class="card purple">
       <h3>📣 Slave MBP · "The Publisher + Browser"</h3>
-      <div class="role">Posting + URL intelligence node</div>
+      <div class="role">Creative fleet — media gen · posting · browser · Kota Warisan Home</div>
       <div class="specs">Apple M1 Pro · 16GB · 500GB<br/>100.93.211.9 (Tailscale)</div>
       <div class="runs">
         <strong>Two agents (single host, single Chromium pool):</strong>
@@ -1181,8 +1181,8 @@ graph TB
     </div>
 
     <div class="card green">
-      <h3>🛠 tr-home · Threadripper @ Neo's Home</h3>
-      <div class="role">Local LLM rig + FCC wall display · Cyberjaya home (relocated from Coplace 11)</div>
+      <h3>🛠 tr-home · Threadripper @ Kenwingston Cyberjaya Office</h3>
+      <div class="role">Local LLM rig + FCC wall display · Kenwingston Cyberjaya Office, Todak Studios (relocated 2026-05-21)</div>
       <div class="specs">AMD Threadripper 7970X · 32 cores / 64 threads · 64GB DDR5<br/>RX 7900 XTX · 24GB VRAM · ROCm 6.2 · Ubuntu 24.04<br/>100.126.89.7 (Tailscale) · 913GB SSD</div>
       <div class="runs">
         <strong>Currently runs:</strong>
@@ -1203,6 +1203,34 @@ graph TB
           <li>Future: trained voice rewriter served back to neo-twin Tier 2; optional local LLM backend for the 3 agents</li>
         </ul>
         <span class="badge live">tier_2 box · 3 NACA agents (Phase 8) + Phase 6 rig · pm2-neo systemd unit survives reboot</span>
+      </div>
+    </div>
+
+    <div class="card cyan">
+      <h3>🇮🇩 bandung-01 · Ubuntu (live 24/7)</h3>
+      <div class="role">Bandung fleet node — always-on Linux box · Todak Bandung Office</div>
+      <div class="specs">Ubuntu · GPU box · 32GB<br/>100.93.60.28 (Tailscale)</div>
+      <div class="runs">
+        <strong>Status:</strong>
+        <ul>
+          <li>Live 24/7 — heartbeats <code>bandung-v1</code></li>
+          <li>First Bandung fleet member · role TBD</li>
+        </ul>
+        <span class="badge live">on fleet · Todak Bandung Office</span>
+      </div>
+    </div>
+
+    <div class="card green">
+      <h3>🇮🇩 neo-bandung-ofc · Windows 11 (KIV)</h3>
+      <div class="role">Bandung fleet node — operator workstation · Bandung apartment</div>
+      <div class="specs">Intel Core Ultra 9 185H · 32GB · Win 11<br/>100.73.162.32 (Tailscale)</div>
+      <div class="runs">
+        <strong>NACA-onboarded:</strong>
+        <ul>
+          <li>Claude Code operator (CTK + naca RAG MCP + heartbeat)</li>
+          <li>KIV to run 24/7 alongside bandung-01</li>
+        </ul>
+        <span class="badge live">on-session · Bandung apartment</span>
       </div>
     </div>
 
