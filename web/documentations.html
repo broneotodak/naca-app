@@ -393,7 +393,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   </div>
   <div class="callout">
     <strong>NACA = Neo's Agentic Centre Applications</strong> — Neo's personal agentic command centre.
-    Eight specialist AI agents run 24/7 — one watches WhatsApp (Siti), one writes code (dev-agent), one reviews PRs (reviewer), one watches the fleet (supervisor), and so on. They coordinate through a shared memory database (<strong>neo-brain</strong>) and report up to Neo via WhatsApp. Neo approves big decisions ("merge this PR", "post this to LinkedIn") with a one-word reply, and the fleet handles the rest.
+    A fleet of specialist AI agents runs 24/7 — one watches WhatsApp (Siti), one writes code (dev-agent), one plans + dispatches work (planner-agent), one watches the fleet (supervisor), and so on. They coordinate through a shared memory database (<strong>neo-brain</strong>) and report up to Neo via WhatsApp. Neo approves big decisions ("merge this PR", "post this to LinkedIn") with a one-word reply, and the fleet handles the rest.
     <br/><br/>
     <em>Built as a personal project. The end-state is a native app on Neo's phone (Flutter, currently in early build) — if it ever gets productised for a company, the whole template just gets cloned.</em>
   </div>
@@ -458,14 +458,14 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     <div class="layer-card" style="border-left: 3px solid var(--green);">
       <span class="layer-num">LAYER 4 · AGENTS</span>
       <h3>🤖 The specialists</h3>
-      <p class="lead">Nine always-on agents you talk to most + 12 specialty/infrastructure agents that support them. All registered in <code>agent_registry</code>, all polling the shared <code>agent_commands</code> queue in neo-brain.</p>
+      <p class="lead">The agents you talk to most + the specialty/infrastructure agents that support them — ~29 active across the fleet. All registered in <code>agent_registry</code>, all polling the shared <code>agent_commands</code> queue in neo-brain.</p>
       <p style="margin: 8px 0; color: #888; font-size: 0.85rem;"><em>Plain English: there are nine agents you'd describe to a friend, and another eleven that quietly keep the machine running underneath them.</em></p>
       <p><strong>The visible nine</strong> (the ones whose names show up in your WhatsApp):</p>
       <ul>
-        <li><strong>siti-router</strong> (<em>Siti v2</em>) — receives WhatsApp via siti-ingest, classifies into 1 of 8 intents, dispatches. 25 tools.</li>
+        <li><strong>siti-router</strong> (<em>Siti v2</em>) — receives WhatsApp via siti-ingest, classifies into 1 of 10 intents, dispatches. 35 tools (owner tier).</li>
         <li><strong>planner</strong> — breaks fuzzy goals into agent tasks</li>
         <li><strong>dev-agent</strong> — opens PRs (Claude Opus)</li>
-        <li><strong>reviewer</strong> — verdicts on PRs (Claude Sonnet)</li>
+        <li><strong>reviewer</strong> — PR verdicts <em>(retired 2026-06-04)</em></li>
         <li><strong>supervisor</strong> — fleet SRE on CLAW</li>
         <li><strong>timekeeper</strong> — fires scheduled jobs at fire_at</li>
         <li><strong>toolsmith</strong> — designs new tool specs</li>
@@ -564,9 +564,9 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
       <div class="dept-header"><span class="dept-dot"></span><span class="dept-title">🧠 LLM-Driven</span><span class="dept-count">6 agents</span></div>
       <div class="agent-card-mini">
         <div class="agent-name">siti-router <span style="color:#888;font-size:0.7rem;">· Chief of Staff (Siti v2)</span></div>
-        <div class="agent-host">Siti VPS · Gemini 2.5 Flash · 8 specialists: IGNORE · VERDICT · REMINDER · MEMORY_OP · GROUP_OP · TASK · MEDIA · CHAT</div>
-        <div class="agent-role">The Siti v2 rebuild — replaced the monolithic 'siti' agent (44 tools in one pile) with Router + 8 specialists. Receives WhatsApp via siti-ingest, classifies into one of 8 intents, dispatches to the right specialist. CHAT specialist owns the tool-using LLM loop.</div>
-        <div class="agent-tools"><strong>25 tools (CHAT-bound):</strong> Knowledge (5: lookup_resource · recall · time_now · search_person · get_person_facts) · Web (2: web_search · read_url v2 — TikTok/YouTube/Twitter/HTML) · Media (7: generate_image · generate_video · edit_image · resend_media · list_media · recognize_face · save_face) · Comms (1: make_call) · Workspace (8: calendar × 2 · gmail × 3 · drive × 3) · Ops (1: check_agent_status) · State (1: chat_thread_state)</div>
+        <div class="agent-host">Siti VPS · Gemini 2.5 Flash · 10 specialists: IGNORE · VERDICT · REMINDER · MEMORY_OP · GROUP_OP · TASK · MEDIA · CHAT · FOREX_SIGNAL · CONTENT_REQUEST</div>
+        <div class="agent-role">The Siti v2 rebuild — replaced the monolithic 'siti' agent (44 tools in one pile) with Router + 10 specialists. Receives WhatsApp via siti-ingest, classifies into one of 10 intents, dispatches to the right specialist. CHAT specialist owns the tool-using LLM loop.</div>
+        <div class="agent-tools"><strong>35 tools at owner tier (CHAT-bound, tier-gated):</strong> Knowledge (5: lookup_resource · recall · time_now · search_person · get_person_facts) · Web (2: web_search · read_url v2 — TikTok/YouTube/Twitter/HTML) · Media (7: generate_image · generate_video · edit_image · resend_media · list_media · recognize_face · save_face) · Comms (1: make_call) · Workspace (8: calendar × 2 · gmail × 3 · drive × 3) · Ops (1: check_agent_status) · State (1: chat_thread_state)</div>
         <div class="agent-tools" style="margin-top: 6px; color: #888;"><em>⛔ Old 'siti' monolith paused since 2026-05-05. siti-router (Siti v2) is the active brain.</em></div>
       </div>
       <div class="agent-card-mini">
@@ -582,7 +582,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         <div class="agent-tools"><strong>4 tools:</strong> <code>read_file</code> · <code>write_file</code> · <code>run_command</code> · <code>list_files</code></div>
       </div>
       <div class="agent-card-mini">
-        <div class="agent-name">reviewer-agent <span style="color:#888;font-size:0.7rem;">· Second Opinion</span></div>
+        <div class="agent-name">reviewer-agent <span style="color:#888;font-size:0.7rem;">· Second Opinion (RETIRED 2026-06-04)</span></div>
         <div class="agent-host">tr-home · Claude Sonnet 4.6 <em style="color:#888;">(moved from Siti VPS 2026-05-11 · Phase 8)</em></div>
         <div class="agent-role">Reads diffs, gives verdicts, posts technical review on GitHub + plain-English brief to Neo via Siti. Skips already-merged PRs (post-merge audit guard).</div>
         <div class="agent-tools"><strong>4 tools (read-only):</strong> <code>read_file</code> · <code>read_diff</code> · <code>list_changed_files</code> · <code>run_readonly</code></div>
@@ -611,7 +611,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
         <div class="agent-tools"><strong>Pipeline:</strong> wacli WS → envelope normalise → neo-brain.memories (siti-router polls) · /send HTTP API for outbound</div>
       </div>
       <div class="agent-card-mini">
-        <div class="agent-name">deployer-agent <span style="color:#888;font-size:0.7rem;">· Auto-Deploy</span></div>
+        <div class="agent-name">deployer-agent <span style="color:#888;font-size:0.7rem;">· Auto-Deploy (RETIRED — replaced by fleet auto-deploy hook)</span></div>
         <div class="agent-host">Siti VPS · Node (since 2026-05-10)</div>
         <div class="agent-role">Closes the "code-merged ≠ deploy-live" gap. Polls <code>agent_commands(to_agent='dev-agent', command='merge_pr', status='done')</code> every 30s. For any matching repo in SERVICE_CONFIGS, runs <code>git pull + pm2 restart</code> locally. Reports back via outbound-bridge with "━━ deployer ━━" attribution. Idempotent via deploy_log memory markers.</div>
         <div class="agent-tools"><strong>Pipeline:</strong> agent_commands(dev-agent/merge_pr/done) → match SERVICE_CONFIGS → git pull → pm2 restart → notify Neo via Siti</div>
@@ -749,7 +749,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     <div class="stage" style="border-color: var(--purple);">
       <div class="stage-head">Stage 2</div>
       <div class="stage-name">🎯 Triage</div>
-      <div class="stage-actor"><code>siti-router</code> classifies into 1 of 8 intents (IGNORE/VERDICT/REMINDER/MEMORY_OP/GROUP_OP/TASK/MEDIA/CHAT) via rules + LLM tiebreak</div>
+      <div class="stage-actor"><code>siti-router</code> classifies into 1 of 10 intents (IGNORE/VERDICT/REMINDER/MEMORY_OP/GROUP_OP/TASK/MEDIA/CHAT/FOREX_SIGNAL/CONTENT_REQUEST) via rules + LLM tiebreak</div>
     </div>
     <div class="stage" style="border-color: var(--purple);">
       <div class="stage-head">Stage 3</div>
@@ -765,7 +765,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     <div class="stage" style="border-color: var(--purple);">
       <div class="stage-head">Stage 5</div>
       <div class="stage-name">🔍 Review</div>
-      <div class="stage-actor"><code>reviewer-agent</code> verdicts + writes pr-awaiting-decision memory + dispatches Siti notification</div>
+      <div class="stage-actor"><code>reviewer-agent</code> verdicts + writes pr-awaiting-decision memory + dispatches Siti notification <em>(reviewer-agent retired 2026-06-04; review_pr dispatch removed)</em></div>
     </div>
     <div class="stage" style="border-color: var(--green);">
       <div class="stage-head">Stage 6</div>
@@ -976,12 +976,12 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
     <div class="stage" style="border-color: var(--purple);">
       <div class="stage-head">Stage 6</div>
       <div class="stage-name">🔍 Review + decide</div>
-      <div class="stage-actor"><code>reviewer-agent</code> verdicts → Siti brief → Neo approves</div>
+      <div class="stage-actor"><code>reviewer-agent</code> verdicts → Siti brief → Neo approves <em>(reviewer-agent retired 2026-06-04)</em></div>
     </div>
     <div class="stage" style="border-color: var(--green);">
       <div class="stage-head">Stage 7</div>
       <div class="stage-name">🚀 Deploy + close loop</div>
-      <div class="stage-actor"><code>dev-agent</code> merges · <code>deployer-agent</code> pulls + restarts · <code>verifier-agent</code> confirms live</div>
+      <div class="stage-actor"><code>dev-agent</code> merges · fleet auto-deploy hook pulls + restarts · <code>verifier-agent</code> confirms live</div>
       <div class="stage-actor">Siti replies in the original group/DM: "✅ fixed by [PR link]"</div>
     </div>
   </div>
@@ -1187,7 +1187,7 @@ graph TB
       <div class="runs">
         <strong>Currently runs:</strong>
         <ul>
-          <li><strong>reviewer-agent</strong> — Claude Sonnet 4.6, PR verdicts (pm2, moved 2026-05-11 · Phase 8)</li>
+          <li><strong>forex-coach-agent · crypto-coach-agent · memory-coach-agent</strong> — daily coaching agents (pm2)</li>
           <li><strong>planner-agent</strong> — Claude Sonnet 4.6, intent decomposition (pm2, moved 2026-05-11 · Phase 8)</li>
           <li><strong>dev-agent</strong> — Claude Opus 4.6, opens/merges PRs (pm2, moved 2026-05-11 · Phase 8)</li>
           <li>Ollama (qwen2.5:32B Q4 pulled, ROCm-accelerated) — available for future local-inference swap, not in use by the 3 agents yet</li>
@@ -1198,7 +1198,7 @@ graph TB
         </ul>
         <strong>Strategic role:</strong>
         <ul>
-          <li>Host for LLM-heavy NACA agents (Phase 8 outcome — reviewer/planner/dev)</li>
+          <li>Host for LLM-heavy NACA agents (planner, dev, + forex/crypto/memory coaches)</li>
           <li>Phase 6 hybrid: tr-home for iteration runs (≤7B LoRA fits 24GB), RunPod for production runs (≥13B bases)</li>
           <li>Future: trained voice rewriter served back to neo-twin Tier 2; optional local LLM backend for the 3 agents</li>
         </ul>
@@ -1444,17 +1444,17 @@ sequenceDiagram
   <table>
     <thead><tr><th>Machine</th><th>Agents hosted</th><th>RAM headroom</th><th>Status</th></tr></thead>
     <tbody>
-      <tr><td><strong>Siti VPS</strong> (8GB Hetzner)</td><td>5 — siti-router, siti-ingest, deployer-agent, face-service, naca-backend <em>(+ naca-mcp-bridge-http; was 9 → 5 → now 5 network-facing only)</em></td><td>~7 GB</td><td><span style="color:var(--green)">🟢 healthy, network-facing-only role</span></td></tr>
+      <tr><td><strong>Siti VPS</strong> (8GB Hetzner)</td><td>siti-router, siti-ingest, naca-backend, naca-monitor, face-service <em>(+ naca-mcp-bridge-http; network-facing only)</em></td><td>~7 GB</td><td><span style="color:var(--green)">🟢 healthy, network-facing-only role</span></td></tr>
       <tr><td><strong>CLAW</strong> (M4 24GB) — Studio</td><td>3 PM2 + ~12 launchd jobs (supervisor, pr-decision-dispatcher, gateway, plaud-ingest, ...)</td><td>~8 GB</td><td><span style="color:var(--green)">🟢 healthy (Ollama dropped)</span></td></tr>
       <tr><td><strong>Slave MBP</strong> (M1 Pro 16GB) — Publisher</td><td>2 — browser-agent, publisher-agent</td><td>~12-13 GB</td><td><span style="color:var(--green)">🟢 healthy</span></td></tr>
       <tr><td><strong>Twin VPS</strong></td><td>2 — twin-ingest, neo-twin</td><td>plenty</td><td><span style="color:var(--green)">🟢 healthy</span></td></tr>
-      <tr><td><strong>tr-home</strong> (Threadripper 7970X / 64GB / 7900 XTX)</td><td>3 NACA agents — reviewer · planner · dev (Phase 8) <em>+ Phase 6 LLM rig + FCC sidecar</em></td><td>~58 GB</td><td><span style="color:var(--green)">🟢 active fleet member (Phase 8 cutover 2026-05-11)</span></td></tr>
+      <tr><td><strong>tr-home</strong> (Threadripper 7970X / 64GB / 7900 XTX)</td><td>5 NACA agents — planner · dev · forex-coach · crypto-coach · memory-coach <em>+ Phase 6 LLM rig + FCC sidecar</em></td><td>~58 GB</td><td><span style="color:var(--green)">🟢 active fleet member (Phase 8 cutover 2026-05-11)</span></td></tr>
       <tr><td><strong>NAS Ugreen</strong> (Pentium Gold 23GB)</td><td><strong>4 NACA agents in Docker</strong> — timekeeper, verifier-agent, toolsmith, poster-agent <em>(+ existing MinIO, n8n, Gitea, Uptime Kuma, Tailscale)</em></td><td>plenty</td><td><span style="color:var(--green)">🟢 active fleet member (was: heartbeat only)</span></td></tr>
       <tr><td><strong>TDCC VPS</strong> (Singapore)</td><td>GAM7 only (Workspace gateway)</td><td>plenty</td><td><span style="color:var(--green)">🟢 healthy</span></td></tr>
       <tr><td><strong>naca-pi</strong> (Pi 4 8GB)</td><td>0 — sandbox</td><td>~6 GB</td><td><span style="color:var(--grey)">⚪ tier_3 sandbox, role TBD</span></td></tr>
     </tbody>
   </table>
-  <div class="callout green" style="margin-top: 14px;"><strong>Two rebalances complete:</strong> (a) 2026-05-04 — Siti VPS down from 9 → 5 NACA agents, NAS Ugreen activated with 4 Dockerised ops agents. (b) 2026-05-11 (Phase 8) — reviewer, planner, dev moved Siti VPS → tr-home. Siti VPS is now network-facing-only (siti-router, siti-ingest, deployer, face-service, naca-backend, naca-mcp-bridge-http). tr-home went from "heartbeat only" → 3 active LLM agents + Phase 6 rig.</div>
+  <div class="callout green" style="margin-top: 14px;"><strong>Two rebalances complete:</strong> (a) 2026-05-04 — Siti VPS down from 9 → 5 NACA agents, NAS Ugreen activated with 4 Dockerised ops agents. (b) 2026-05-11 (Phase 8) — reviewer, planner, dev moved Siti VPS → tr-home. Siti VPS is now network-facing-only (siti-router, siti-ingest, naca-backend, naca-monitor, face-service, naca-mcp-bridge-http). tr-home went from "heartbeat only" → 3 active LLM agents + Phase 6 rig.</div>
 
   <h3 style="margin-top: 28px;">🧭 Rebalancing roadmap — ✅ done (2026-05-04 NAS + 2026-05-11 tr-home)</h3>
   <p style="color: #888;"><em>Plain English: each row says "this agent currently lives at X; it should move to Y because Z." We do them one at a time, verify each before the next. None of these are urgent — the fleet runs fine today.</em></p>
@@ -1499,8 +1499,8 @@ sequenceDiagram
       </tr>
       <tr>
         <td><strong>stay</strong></td>
-        <td><code>siti-router</code>, <code>siti-ingest</code>, <code>deployer-agent</code>, <code>face-service</code>, <code>naca-backend</code>, <code>naca-mcp-bridge-http</code></td>
-        <td>Network-facing (WA gateway, HTTP APIs, MCP bridge) or host-locally coupled (deployer SSH-deploys local Hetzner pm2). These belong on the VPS.</td>
+        <td><code>siti-router</code>, <code>siti-ingest</code>, <code>naca-backend</code>, <code>naca-monitor</code>, <code>face-service</code>, <code>naca-mcp-bridge-http</code></td>
+        <td>Network-facing (WA gateway, HTTP APIs, MCP bridge) + the fleet-health monitor. These belong on the VPS. <em>(deployer-agent retired — auto-deploy is now a fleet merge→pull→restart hook.)</em></td>
         <td>—</td>
       </tr>
       <tr>
@@ -1691,7 +1691,7 @@ sequenceDiagram
 <span class="repo">broneotodak/siti-v2</span>                       ← WhatsApp interface
   imports @naca/core + @naca/router + @naca/tools
   keeps WhatsApp-specific: wacli transports, envelope mappers,
-  Siti's rule list + persona, the 8 specialists
+  Siti's rule list + persona, the 10 specialists
 
 <span class="repo">broneotodak/naca-app</span>                      ← Mobile / web operator console (this site)
   Flutter cross-platform · reads neo-brain via REST
@@ -1933,7 +1933,7 @@ sequenceDiagram
     <dt>@naca/core</dt>
     <dd>Shared kernel package. Postgrest, vault, heartbeat, Gemini clients, abstract send.</dd>
     <dt>@naca/tools</dt>
-    <dd>Capability library — the 25 tools any NACA interface can dispatch.</dd>
+    <dd>Capability library — ~41 tools (35 at owner tier) any NACA interface can dispatch.</dd>
     <dt>@naca/router</dt>
     <dd>Intent classifier engine + LLM tiebreak. Knows nothing about WhatsApp.</dd>
     <dt>siti-v2</dt>
@@ -1941,7 +1941,7 @@ sequenceDiagram
     <dt>agent_registry</dt>
     <dd>The canonical "phonebook" of every NACA agent (Supabase table). Refactor v2 makes every module read its watch / display / routing lists from this table instead of carrying hardcoded copies. Schema locked in <a href="https://github.com/broneotodak/naca/blob/main/docs/spec/agent-registry-schema-v1.md">agent-registry-schema-v1.md</a>.</dd>
     <dt>project_registry</dt>
-    <dd>Companion table to agent_registry — one row per deployable project (repo / deploy_url / pm2 name / tier). Verifier-agent + deployer-agent + FCC all read from here. The deprecated <code>"NO_DEPLOY"</code> sentinel will be migrated to <code>deploy_url=null</code> + <code>metadata.skip_verify=true</code> in Refactor v2 step 3.</dd>
+    <dd>Companion table to agent_registry — one row per deployable project (repo / deploy_url / pm2 name / tier). Verifier-agent + FCC all read from here. The deprecated <code>"NO_DEPLOY"</code> sentinel will be migrated to <code>deploy_url=null</code> + <code>metadata.skip_verify=true</code> in Refactor v2 step 3.</dd>
     <dt>Registry-driven core (v2)</dt>
     <dd>Engineering name for what Neo calls <strong>Agent Plug &amp; Play</strong>. The follow-up to Platform Refactor v1. Where v1 separated <em>code</em> into packages, v2 separates <em>configuration</em> — onboarding a new agent should be a one-row INSERT, never a code edit across N modules. 6 migrations + 1 CI lint guard, all shipped 2026-05-13. See "Core v2" section above.</dd>
     <dt>Agent Plug &amp; Play</dt>
