@@ -2680,6 +2680,27 @@ echo "TMPDIR=$TMP"
 //     -f config[url]=https://naca.neotodak.com/api/webhooks/github \
 //     -f config[content_type]=json -f config[secret]=$GITHUB_WEBHOOK_SECRET
 // ════════════════════════════════════════════════════════════════════
+// Registry-driven auto-deploy targets (Agent Plug & Play): a hands agent
+// declares the repos it can deploy via agent_registry.meta.deploy_projects =
+// { "<owner>/<repo>": "<project>" } — the project name selects the recipe
+// file on that agent's box (e.g. edge-cc's ~/.naca/edge-cc/recipes/<project>.sh).
+// Adding a deployable repo is a registry edit + a recipe file, never a change here.
+async function findDeployTargets(repo) {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from('agent_registry')
+    .select('agent_name, meta')
+    .eq('status', 'active')
+    .not('meta->deploy_projects', 'is', null);
+  if (error) {
+    console.error('[github-webhook] deploy target lookup failed:', error.message);
+    return [];
+  }
+  return (data || [])
+    .filter((r) => r.meta?.deploy_projects?.[repo])
+    .map((r) => ({ agent_name: r.agent_name, project: r.meta.deploy_projects[repo] }));
+}
+
 function handleGithubWebhook(req, res) {
   const secret = process.env.GITHUB_WEBHOOK_SECRET;
   if (!secret) { res.writeHead(503, { 'Content-Type': 'application/json' }); res.end('{"error":"webhook secret not configured"}'); return; }
@@ -2748,6 +2769,34 @@ function handleGithubWebhook(req, res) {
               raw_text: `[github] PR merged on ${repo}: #${pr.number} "${pr.title}" by @${pr.merged_by?.login || 'unknown'}. At most one short send_whatsapp_notification to siti summarising the merge — DO NOT dispatch review_pr (already reviewed when opened; re-reviewing a merged PR spams the operator with a redundant approval brief), DO NOT dispatch dev-agent commands (no investigation requested), DO NOT compose multi-paragraph commit-message-style task bodies. If the merge is routine, decompose to no actions at all.`,
               source_ref: JSON.stringify({ event: 'pull_request', action: 'merged', repo, pr_number: pr.number, pr_url: pr.html_url, merged_by: pr.merged_by?.login }),
             });
+            // Merged into the default branch → auto-deploy (DIRECT — the
+            // registry names the hands agent + recipe, so this is a known
+            // command, not a planner decision; "done means deployed"). The
+            // hands agent runs the recipe (fetch → diff → backup → sync →
+            // restart → verify) and reports the DEPLOY-RESULT back over WA
+            // via payload.notify_jid (DEPLOY_NOTIFY_JID env, optional).
+            if (pr.base?.ref === (payload.repository?.default_branch || 'main')) {
+              const targets = await findDeployTargets(repo);
+              for (const t of targets) {
+                commands.push({
+                  from_agent: 'github-webhook',
+                  to_agent: t.agent_name,
+                  command: 'deploy_project',
+                  payload: {
+                    project: t.project,
+                    repo,
+                    pr_number: pr.number,
+                    pr_url: pr.html_url,
+                    sha: pr.merge_commit_sha,
+                    notify_jid: process.env.DEPLOY_NOTIFY_JID || null,
+                  },
+                  priority: 4,
+                });
+              }
+              if (targets.length) {
+                console.log(`[github-webhook] auto-deploy: ${repo} → ${targets.map((t) => `${t.agent_name}/${t.project}`).join(', ')}`);
+              }
+            }
           }
           break;
         }
