@@ -80,11 +80,11 @@ Plus the WebSocket endpoint at `/` for streaming Claude Code terminal sessions.
 
 | Platform | Method |
 |---|---|
-| Web | `git push origin main` → GitHub Actions → Flutter web build → SCP to VPS → served from `naca.neotodak.com` |
+| Web | Not hosted since 2026-07-28 (died with nclaw VPS). CI still compile-checks the web build. `naca.neotodak.com` fronts the backend API. |
 | iOS | `flutter run -d <device-id>` or Xcode `Cmd+R`. See `docs/iOS-DEPLOY.md`. |
 | macOS | `flutter run -d macos` |
 | Android | `flutter build apk --release`, sideload |
-| Backend | SSH VPS → `cd ~/naca-app/backend && git pull && pm2 restart naca-backend` |
+| Backend | Automatic on merged PR: github-webhook → edge-cc `deploy_project` recipe on EdgeXpert (sync, restart, health-verify, WhatsApp report) |
 
 ## Common gotchas
 
