@@ -59,42 +59,21 @@ jobs:
         if: steps.changes.outputs.web == '1'
         run: flutter build web --release
 
-      - name: Deploy web to VPS
+      # Web HOSTING was decommissioned with the nclaw VPS (deleted 2026-07-28).
+      # naca.neotodak.com now fronts the backend API via hermes nginx -> EdgeXpert
+      # :3100; the app ships as iOS/native builds. The web build above stays as a
+      # compile check. If web hosting returns, deploy via an edge-cc recipe
+      # (registry meta.deploy_projects), not scp from CI.
+      - name: Web build is a compile check only (no web hosting since 2026-07-28)
         if: steps.changes.outputs.web == '1'
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: 178.156.241.204
-          username: openclaw
-          key: ${{ secrets.VPS_SSH_KEY }}
-          source: "build/web/*"
-          target: "/home/openclaw/naca-app/"
-          strip_components: 0
+        run: echo "Web build OK — not deployed (web hosting decommissioned with nclaw; see comment above)."
 
       # ─── BACKEND ────────────────────────────────────────────────────
-      - name: Deploy backend (pull + npm i if needed + pm2 restart)
-        if: steps.changes.outputs.backend == '1'
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: 178.156.241.204
-          username: openclaw
-          key: ${{ secrets.VPS_SSH_KEY }}
-          script: |
-            set -e
-            cd /home/openclaw/naca-app
-            BEFORE=$(git rev-parse HEAD)
-            git fetch --quiet origin main
-            git reset --hard origin/main
-            AFTER=$(git rev-parse HEAD)
-            echo "Updated $BEFORE -> $AFTER"
-            # Re-install backend deps only if backend/package* actually changed
-            if git diff --name-only $BEFORE $AFTER | grep -qE '^backend/package'; then
-              echo "package.json changed — running npm install"
-              cd backend && npm install --omit=dev --no-audit --no-fund
-              cd ..
-            fi
-            pm2 restart naca-backend
-            sleep 2
-            pm2 describe naca-backend | grep -E 'status|restarts' | head -5
+      # Backend deploys are OWNED BY THE FLEET PIPELINE since 2026-08-05:
+      # merged PRs fire the github-webhook -> agent_registry meta.deploy_projects
+      # -> edge-cc deploy_project recipe (fetch, diff, backup, sync, pm2 restart,
+      # /api/health verify, WhatsApp report). The old ssh-to-nclaw step died with
+      # that VPS (deleted 2026-07-28) and failed every backend merge since.
 
       # ─── NOTIFICATION ───────────────────────────────────────────────
       - name: Build deploy summary
