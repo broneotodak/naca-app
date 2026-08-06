@@ -2816,6 +2816,51 @@ function handleGithubWebhook(req, res) {
         case 'issue_comment': {
           // Comments mentioning an agent → INTENT (planner reads the body and decides what to do).
           const body = payload.comment?.body || '';
+          // claude[bot] review verdict on an OPEN PR → WhatsApp Neo (DIRECT).
+          // The GitHub-cloud reviewer (anthropics/claude-code-action, posts as
+          // claude[bot]) finishes with a "verdict: …" comment. Fleet-origin
+          // PRs are skipped — the CC session that opened them self-merges
+          // (Lane A); everything else is a PR awaiting Neo's call, previously
+          // only visible by email. Message carries the 📦 repo#N marker so a
+          // WhatsApp quote-reply "approve"/"reject" resolves through Siti's
+          // verdict lane (extractPrRef). Trigger on action=created only —
+          // the bot's in-progress comment carries no verdict line.
+          const isPr = !!payload.issue?.pull_request;
+          const verdictMatch = /verdict:\s*\**([a-z_ ]{2,30})\**/i.exec(body);
+          const isClaudeBot = /^claude(\[bot\])?$/i.test(payload.comment?.user?.login || '');
+          if (payload.action === 'created' && isPr && isClaudeBot && verdictMatch
+              && payload.issue?.state === 'open') {
+            const isFleetOriginPr = payload.issue?.user?.login === 'broneotodak' &&
+              /(?:🤖\s*)?Generated with \[?Claude Code\]?|Co-Authored-By:\s*Claude/i.test(payload.issue?.body || '');
+            if (isFleetOriginPr) {
+              console.log(`[github-webhook] claude[bot] verdict on fleet-origin PR — no WA ping: ${payload.issue?.html_url}`);
+            } else if (process.env.DEPLOY_NOTIFY_JID) {
+              const verdict = verdictMatch[1].trim().toLowerCase();
+              const summaryLine = (body.split('\n').find(l => /^Review:|^Scope|^Summary/i.test(l.trim())) || '').slice(0, 160);
+              commands.push({
+                from_agent: 'github-webhook',
+                to_agent: 'siti',
+                command: 'send_whatsapp_notification',
+                payload: {
+                  to_jid: process.env.DEPLOY_NOTIFY_JID,
+                  message: [
+                    '━━ reviewer ━━',
+                    '*PR awaiting your call*',
+                    `📦 ${repo}#${payload.issue?.number}`,
+                    `📝 ${(payload.issue?.title || '').slice(0, 120)}`,
+                    `👤 ${payload.issue?.user?.login || 'unknown'}`,
+                    `🔍 review verdict: *${verdict}*`,
+                    summaryLine ? `· ${summaryLine}` : null,
+                    `🔗 ${payload.issue?.html_url}`,
+                    '',
+                    'Quote-reply *approve* or *reject* to settle it.',
+                  ].filter(Boolean).join('\n'),
+                },
+                priority: 3,
+              });
+              console.log(`[github-webhook] review-verdict WA ping: ${repo}#${payload.issue?.number} verdict=${verdict}`);
+            }
+          }
           const mentionable = await getMentionableAgents();
           const mentioned = mentionable.filter(t => body.includes('@' + t));
           if (mentioned.length) {
