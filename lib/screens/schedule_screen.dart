@@ -1122,8 +1122,8 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   void _showApproveDialog(Map<String, dynamic> draft) {
     final id = draft['id']?.toString() ?? '';
     final caption = (draft['caption'] ?? '').toString();
-    Set<String> chosenChannels = {'linkedin'}; // default
-    DateTime fireAt = DateTime.now().add(const Duration(minutes: 5));
+    Set<String> chosenChannels = {'linkedin', 'instagram', 'threads', 'tiktok'}; // default: all live channels
+    DateTime fireAt = _nextPeakSlot(); // engagement default: evening peak, not "whenever approved"
     bool submitting = false;
     String? formError;
 
@@ -1201,6 +1201,8 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                         final t = DateTime.now().add(const Duration(days: 1));
                         setLocal(() => fireAt = DateTime(t.year, t.month, t.day, 9, 0));
                       }),
+                      const SizedBox(width: 6),
+                      _quickFireBtn('PEAK 7PM', () => setLocal(() => fireAt = _nextPeakSlot())),
                     ]),
                   ),
                   if (formError != null) Padding(
@@ -1234,6 +1236,18 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         ),
       ),
     );
+  }
+
+  /// Next evening engagement-peak slot (~7pm local): short-form reach is
+  /// decided in the first hour, so posts should land when the audience is
+  /// scrolling, not whenever the operator happened to approve. Before 7pm →
+  /// today 7pm; inside the 7-9pm window → post now; after → tomorrow 7pm.
+  static DateTime _nextPeakSlot() {
+    final now = DateTime.now();
+    if (now.hour < 19) return DateTime(now.year, now.month, now.day, 19, 0);
+    if (now.hour < 21) return now.add(const Duration(minutes: 5));
+    final t = now.add(const Duration(days: 1));
+    return DateTime(t.year, t.month, t.day, 19, 0);
   }
 
   Widget _quickFireBtn(String label, VoidCallback onTap) => GestureDetector(
